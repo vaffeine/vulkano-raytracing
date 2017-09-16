@@ -1,0 +1,118 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set = 0, binding = 0, rgba8) uniform writeonly image2D img;
+
+struct Camera {
+  vec3 position;
+  vec3 view;
+  vec3 right;
+  vec3 up;
+};
+
+layout (set = 0, binding = 1) uniform Constants {
+  Camera camera;
+};
+
+layout (std140, set = 0, binding = 2) buffer Positions
+{
+  vec3 positions[];
+};
+
+layout (std140, set = 0, binding = 3) buffer Indices
+{
+  uvec3 indices[];
+};
+
+struct Ray {
+  vec3 orig;
+  vec3 dir;
+};
+
+struct IntersectionResult {
+  vec2 uv;
+  float time;
+  bool intersect;
+};
+
+IntersectionResult no_intersection() {
+  IntersectionResult result;
+  result.intersect = false;
+  return result;
+}
+
+IntersectionResult intersect(in Ray ray, in uvec3 triangle)
+{
+  const float kEpsilon = 1e-8;
+  vec3 v0 = positions[triangle.x];
+  vec3 v1 = positions[triangle.y];
+  vec3 v2 = positions[triangle.z];
+  vec3 v0v1 = v1 - v0;
+  vec3 v0v2 = v2 - v0;
+  vec3 pvec = cross(ray.dir, v0v2);
+  float det = dot(v0v1, pvec);
+  if (det < kEpsilon) {
+    return no_intersection();
+  }
+  float invDet = 1.0 / det;
+
+  vec3 tvec = ray.orig - v0;
+  float u = dot(tvec, pvec) * invDet;
+  if (u < 0.0 || u > 1.0) {
+    return no_intersection();
+  }
+
+  vec3 qvec = cross(tvec, v0v1);
+  float v = dot(ray.dir, qvec) * invDet;
+  if (v < 0.0 || u + v > 1.0) {
+    return no_intersection();
+  }
+
+  float t = dot(v0v2, qvec) * invDet;
+
+  IntersectionResult result;
+  result.intersect = true;
+  result.time = t;
+  result.uv = vec2(u, v);
+  return result;
+}
+
+Ray primary_ray(in vec2 uv) {
+  vec3 dir = camera.view
+             + camera.right * (2.0 * uv.x - 1.0)
+             + camera.up  * (2.0 * uv.y - 1.0);
+
+  Ray ray;
+  ray.orig = camera.position;
+  ray.dir = normalize(dir);
+  return ray;
+
+  /*
+  Ray ray;
+  ray.orig = camera.position;
+  ray.dir = normalize(vec3((-1.0 + 2.0 * uv) * vec2(aspect_ratio, 1.0), -1.0));
+  return ray;
+  */
+}
+
+vec3 trace(in Ray ray) {
+  IntersectionResult best;
+  best.time = 1e20;
+  best.uv = vec2(0.0);
+  for (uint i = 0; i < indices.length(); ++i) {
+    IntersectionResult result = intersect(ray, indices[i]);
+    if (result.intersect && best.time > result.time) {
+      best = result;
+    }
+  }
+  return vec3(best.uv, 0.0);
+}
+
+void main() {
+  ivec2 dim = imageSize(img);
+  vec2 uv = vec2(gl_GlobalInvocationID.xy) / dim;
+  float aspect_ratio = dim.x / dim.y;
+  Ray ray = primary_ray(uv);
+  vec3 color = trace(ray);
+  imageStore(img, ivec2(gl_GlobalInvocationID.xy), vec4(color, 1.0));
+}

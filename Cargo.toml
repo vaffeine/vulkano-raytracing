@@ -1,0 +1,19 @@
+[package]
+name = "vulkano"
+version = "0.1.0"
+authors = ["Vlad Alex <vlad.al.dp@gmail.com>"]
+
+[[bin]]
+name = "vulkano"
+path = "src/main.rs"
+
+[dependencies]
+vulkano = "*"
+vulkano-shader-derive = "*"
+vulkano-win = "*"
+vulkano_text = "*"
+winit = "*"
+
+time = "*"
+tobj = "*"
+cgmath = "*"
