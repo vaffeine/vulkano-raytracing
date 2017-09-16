@@ -8,24 +8,27 @@ use gl_types::{Vec3, UVec3};
 use super::cs;
 
 pub struct ComputePart<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> {
-    pub pipeline: Arc<vulkano::pipeline::ComputePipelineAbstract + Send + Sync>,
+    pipeline: Arc<vulkano::pipeline::ComputePipelineAbstract + Send + Sync>,
     image: Arc<I>,
     positions: Arc<vulkano::buffer::CpuAccessibleBuffer<[Vec3]>>,
     indices: Arc<vulkano::buffer::CpuAccessibleBuffer<[UVec3]>>,
 }
 
 impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> ComputePart<I> {
-    pub fn new(device: &Arc<vulkano::device::Device>,
-               image: Arc<I>,
-               positions: Arc<vulkano::buffer::CpuAccessibleBuffer<[Vec3]>>,
-               indices: Arc<vulkano::buffer::CpuAccessibleBuffer<[UVec3]>>)
-               -> ComputePart<I> {
+    pub fn new(
+        device: &Arc<vulkano::device::Device>,
+        image: Arc<I>,
+        positions: Arc<vulkano::buffer::CpuAccessibleBuffer<[Vec3]>>,
+        indices: Arc<vulkano::buffer::CpuAccessibleBuffer<[UVec3]>>,
+    ) -> ComputePart<I> {
         let shader = cs::Shader::load(device.clone()).expect("failed to create shader module");
-        let pipeline =
-            Arc::new(vulkano::pipeline::ComputePipeline::new(device.clone(),
-                                                             &shader.main_entry_point(),
-                                                             &())
-                .expect("failed to create compute pipeline"));
+        let pipeline = Arc::new(
+            vulkano::pipeline::ComputePipeline::new(
+                device.clone(),
+                &shader.main_entry_point(),
+                &(),
+            ).expect("failed to create compute pipeline"),
+        );
 
         ComputePart {
             pipeline: pipeline,
@@ -35,19 +38,35 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
         }
     }
 
-    pub fn next_set(&mut self,
-                    uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync>)
-                    -> Arc<vulkano::descriptor::descriptor_set::DescriptorSet + Send + Sync> {
-        Arc::new(descriptor_set::PersistentDescriptorSet::start(self.pipeline.clone(), 0)
-            .add_image(self.image.clone())
+    pub fn render(
+        &mut self,
+        builder: vulkano::command_buffer::AutoCommandBufferBuilder,
+        dimensions: [u32; 2],
+        uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync + 'static>,
+    ) -> vulkano::command_buffer::AutoCommandBufferBuilder {
+        builder.dispatch([dimensions[0] / 16, dimensions[1] / 16, 1],
+                      self.pipeline.clone(),
+                      self.next_set(uniform.clone()),
+                      ())
             .unwrap()
-            .add_buffer(uniform)
-            .unwrap()
-            .add_buffer(self.positions.clone())
-            .unwrap()
-            .add_buffer(self.indices.clone())
-            .unwrap()
-            .build()
-            .unwrap())
+    }
+
+    fn next_set(
+        &mut self,
+        uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
+    ) -> Arc<vulkano::descriptor::descriptor_set::DescriptorSet + Send + Sync> {
+        Arc::new(
+            descriptor_set::PersistentDescriptorSet::start(self.pipeline.clone(), 0)
+                .add_image(self.image.clone())
+                .unwrap()
+                .add_buffer(uniform)
+                .unwrap()
+                .add_buffer(self.positions.clone())
+                .unwrap()
+                .add_buffer(self.indices.clone())
+                .unwrap()
+                .build()
+                .unwrap(),
+        )
     }
 }

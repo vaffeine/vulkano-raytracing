@@ -5,6 +5,7 @@ use cgmath::InnerSpace;
 use input;
 
 use super::std::f32::consts::PI;
+use super::std::fmt;
 
 const UP: cgmath::Vector3<f32> = cgmath::Vector3 {
     x: 0.0,
@@ -12,6 +13,7 @@ const UP: cgmath::Vector3<f32> = cgmath::Vector3 {
     z: 0.0,
 };
 
+#[derive(Debug)]
 pub struct Camera {
     position: cgmath::Vector3<f32>,
     view_dir: cgmath::Vector3<f32>,
@@ -41,10 +43,12 @@ impl Camera {
         let vert_axis = horiz_axis.cross(self.view_dir).normalize();
         let right = horiz_axis * scale(self.fov[0]);
         let up = vert_axis * scale(-self.fov[1]);
-        GPUCamera::new(self.position.into(),
-                       self.view_dir.into(),
-                       up.into(),
-                       right.into())
+        GPUCamera::new(
+            self.position.into(),
+            self.view_dir.into(),
+            up.into(),
+            right.into(),
+        )
     }
     pub fn process_keyboard_input(&mut self, keyboard: &input::Keyboard, delta_seconds: f32) {
         const SPEED: f32 = 2.5;
@@ -93,16 +97,31 @@ impl Camera {
     }
 }
 
+impl fmt::Display for Camera {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "pos: [{:.2}, {:.2}, {:.2}], yaw: {:.2}, pitch: {:.2}",
+            self.position.x,
+            self.position.y,
+            self.position.z,
+            self.yaw,
+            self.pitch
+        )
+    }
+}
+
 pub trait GPUCamera {
     fn new(position: [f32; 3], view: [f32; 3], up: [f32; 3], right: [f32; 3]) -> Self;
 }
 
 fn view_direction(yaw: f32, pitch: f32) -> cgmath::Vector3<f32> {
     -1.0 *
-    cgmath::Vector3::new(yaw.sin() * pitch.cos(),
-                         pitch.sin(),
-                         yaw.cos() * pitch.cos())
-        .normalize()
+        cgmath::Vector3::new(
+            yaw.sin() * pitch.cos(),
+            pitch.sin(),
+            yaw.cos() * pitch.cos(),
+        ).normalize()
 }
 
 fn scale(fov: f32) -> f32 {
