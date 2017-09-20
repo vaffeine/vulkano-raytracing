@@ -16,13 +16,34 @@ layout (set = 0, binding = 1) uniform Constants {
 
 layout (std140, set = 0, binding = 2) buffer Positions
 {
-  vec3 positions[];
-};
+  vec3 data[];
+} positions;
 
 layout (std140, set = 0, binding = 3) buffer Indices
 {
-  uvec3 indices[];
+  uvec3 data[];
+} indices;
+
+layout (std140, set = 0, binding = 4) buffer Noramls
+{
+  vec3 data[];
+} normals;
+
+layout (std140, set = 0, binding = 5) buffer TexCoords
+{
+  vec3 data[];
+} tex_coords;
+
+struct Model {
+  uint indices_start;
+  uint indices_end;
+  uint material_index;
 };
+
+layout (std140, set = 0, binding = 6) buffer Models
+{
+  Model data[];
+} models;
 
 struct Ray {
   vec3 orig;
@@ -35,6 +56,13 @@ struct IntersectionResult {
   bool intersect;
 };
 
+IntersectionResult intersection_result() {
+  IntersectionResult result;
+  result.time = 1e20;
+  result.uv = vec2(0.0);
+  return result;
+}
+
 IntersectionResult no_intersection() {
   IntersectionResult result;
   result.intersect = false;
@@ -44,9 +72,9 @@ IntersectionResult no_intersection() {
 IntersectionResult intersect(in Ray ray, in uvec3 triangle)
 {
   const float kEpsilon = 1e-8;
-  vec3 v0 = positions[triangle.x];
-  vec3 v1 = positions[triangle.y];
-  vec3 v2 = positions[triangle.z];
+  vec3 v0 = positions.data[triangle.x];
+  vec3 v1 = positions.data[triangle.y];
+  vec3 v2 = positions.data[triangle.z];
   vec3 v0v1 = v1 - v0;
   vec3 v0v2 = v2 - v0;
   vec3 pvec = cross(ray.dir, v0v2);
@@ -77,6 +105,29 @@ IntersectionResult intersect(in Ray ray, in uvec3 triangle)
   return result;
 }
 
+
+IntersectionResult intersect_model(in Ray ray, in Model model) {
+  IntersectionResult best = intersection_result();
+  for (uint i = model.indices_start; i < model.indices_end; ++i) {
+    IntersectionResult result = intersect(ray, indices.data[i]);
+    if (result.intersect && best.time > result.time) {
+      best = result;
+    }
+  }
+  return best;
+}
+
+vec3 trace(in Ray ray) {
+  IntersectionResult best = intersection_result();
+  for (uint i = 0; i < models.data.length(); ++i) {
+    IntersectionResult result = intersect_model(ray, models.data[i]);
+    if (result.intersect && best.time > result.time) {
+      best = result;
+    }
+  }
+  return vec3(best.uv, 0.0);
+}
+
 Ray primary_ray(in vec2 uv) {
   vec3 dir = camera.view
              + camera.right * (2.0 * uv.x - 1.0)
@@ -93,19 +144,6 @@ Ray primary_ray(in vec2 uv) {
   ray.dir = normalize(vec3((-1.0 + 2.0 * uv) * vec2(aspect_ratio, 1.0), -1.0));
   return ray;
   */
-}
-
-vec3 trace(in Ray ray) {
-  IntersectionResult best;
-  best.time = 1e20;
-  best.uv = vec2(0.0);
-  for (uint i = 0; i < indices.length(); ++i) {
-    IntersectionResult result = intersect(ray, indices[i]);
-    if (result.intersect && best.time > result.time) {
-      best = result;
-    }
-  }
-  return vec3(best.uv, 0.0);
 }
 
 void main() {
