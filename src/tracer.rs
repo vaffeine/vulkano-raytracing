@@ -3,23 +3,27 @@ use vulkano::descriptor::descriptor_set;
 
 use std::sync::Arc;
 
-use gl_types::{Vec3, UVec3};
-
-use super::cs;
+use cs;
+use scene;
 
 pub struct ComputePart<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> {
     pipeline: Arc<vulkano::pipeline::ComputePipelineAbstract + Send + Sync>,
     image: Arc<I>,
-    positions: Arc<vulkano::buffer::CpuAccessibleBuffer<[Vec3]>>,
-    indices: Arc<vulkano::buffer::CpuAccessibleBuffer<[UVec3]>>,
+    pool: descriptor_set::FixedSizeDescriptorSetsPool<
+        Arc<
+            vulkano::pipeline::ComputePipeline<
+                vulkano::descriptor::pipeline_layout::PipelineLayout<cs::Layout>,
+            >,
+        >,
+    >,
+    persistent_set: Arc<vulkano::descriptor::DescriptorSet + Send + Sync>,
 }
 
 impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> ComputePart<I> {
     pub fn new(
         device: &Arc<vulkano::device::Device>,
         image: Arc<I>,
-        positions: Arc<vulkano::buffer::CpuAccessibleBuffer<[Vec3]>>,
-        indices: Arc<vulkano::buffer::CpuAccessibleBuffer<[UVec3]>>,
+        buffers: scene::ModelBuffers,
     ) -> ComputePart<I> {
         let shader = cs::Shader::load(device.clone()).expect("failed to create shader module");
         let pipeline = Arc::new(
@@ -29,12 +33,31 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
                 &(),
             ).expect("failed to create compute pipeline"),
         );
+        let sampler = vulkano::sampler::Sampler::simple_repeat_linear(device.clone());
+        let pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 0);
+        let persistent_set = descriptor_set::PersistentDescriptorSet::start(pipeline.clone(), 1)
+            .add_buffer(buffers.positions.clone())
+            .unwrap()
+            .add_buffer(buffers.indices.clone())
+            .unwrap()
+            .add_buffer(buffers.normals.clone())
+            .unwrap()
+            .add_buffer(buffers.texcoords.clone())
+            .unwrap()
+            .add_buffer(buffers.models.clone())
+            .unwrap()
+            .add_buffer(buffers.materials.clone())
+            .unwrap()
+            .add_sampled_image(buffers.textures[0].clone(), sampler)
+            .unwrap()
+            .build()
+            .unwrap();
 
         ComputePart {
             pipeline: pipeline,
             image: image,
-            positions: positions,
-            indices: indices,
+            pool: pool,
+            persistent_set: Arc::new(persistent_set),
         }
     }
 
@@ -44,10 +67,13 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
         dimensions: [u32; 2],
         uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync + 'static>,
     ) -> vulkano::command_buffer::AutoCommandBufferBuilder {
-        builder.dispatch([dimensions[0] / 16, dimensions[1] / 16, 1],
-                      self.pipeline.clone(),
-                      self.next_set(uniform.clone()),
-                      ())
+        builder
+            .dispatch(
+                [dimensions[0] / 16, dimensions[1] / 16, 1],
+                self.pipeline.clone(),
+                (self.next_set(uniform.clone()), self.persistent_set.clone()),
+                (),
+            )
             .unwrap()
     }
 
@@ -56,14 +82,11 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
         uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     ) -> Arc<vulkano::descriptor::descriptor_set::DescriptorSet + Send + Sync> {
         Arc::new(
-            descriptor_set::PersistentDescriptorSet::start(self.pipeline.clone(), 0)
+            self.pool
+                .next()
                 .add_image(self.image.clone())
                 .unwrap()
                 .add_buffer(uniform)
-                .unwrap()
-                .add_buffer(self.positions.clone())
-                .unwrap()
-                .add_buffer(self.indices.clone())
                 .unwrap()
                 .build()
                 .unwrap(),

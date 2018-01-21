@@ -1,5 +1,5 @@
 [package]
-name = "vulkano"
+name = "vulkano-raytracing"
 version = "0.1.0"
 authors = ["Vlad Alex <vlad.al.dp@gmail.com>"]
 
@@ -8,12 +8,13 @@ name = "vulkano"
 path = "src/main.rs"
 
 [dependencies]
-vulkano = "*"
-vulkano-shader-derive = "*"
-vulkano-win = "*"
-vulkano_text = "*"
-winit = "*"
+vulkano = "0.7.1"
+vulkano-shader-derive = "0.7"
+vulkano-win = "0.7"
+vulkano_text = "0.5"
+winit = "0.7.0"
 
-time = "*"
-tobj = "*"
-cgmath = "*"
+time = "0.1"
+image = "0.18"
+tobj = "0.1"
+cgmath = "0.16"

@@ -102,11 +102,7 @@ impl fmt::Display for Camera {
         write!(
             f,
             "pos: [{:.2}, {:.2}, {:.2}], yaw: {:.2}, pitch: {:.2}",
-            self.position.x,
-            self.position.y,
-            self.position.z,
-            self.yaw,
-            self.pitch
+            self.position.x, self.position.y, self.position.z, self.yaw, self.pitch
         )
     }
 }
@@ -116,8 +112,8 @@ pub trait GPUCamera {
 }
 
 fn view_direction(yaw: f32, pitch: f32) -> cgmath::Vector3<f32> {
-    -1.0 *
-        cgmath::Vector3::new(
+    -1.0
+        * cgmath::Vector3::new(
             yaw.sin() * pitch.cos(),
             pitch.sin(),
             yaw.cos() * pitch.cos(),

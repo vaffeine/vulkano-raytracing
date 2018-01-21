@@ -45,7 +45,9 @@ pub struct Mouse {
 
 impl Mouse {
     pub fn new() -> Mouse {
-        Mouse { mouse_delta: (0.0, 0.0) }
+        Mouse {
+            mouse_delta: (0.0, 0.0),
+        }
     }
     pub fn handle_mousemove(&mut self, axis: winit::AxisId, value: f64) {
         match axis {

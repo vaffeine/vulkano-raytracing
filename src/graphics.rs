@@ -5,7 +5,7 @@ extern crate vulkano_win;
 
 use std::sync::Arc;
 use std::boxed::Box;
-use std::marker::{Sync, Send};
+use std::marker::{Send, Sync};
 use std::mem;
 
 use gl_types::Vec2;
@@ -16,17 +16,25 @@ pub struct GraphicsPart {
     pub recreate_swapchain: bool,
     pub images: Vec<Arc<vulkano::image::swapchain::SwapchainImage>>,
     pub texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
-    pipeline: Arc<vulkano::pipeline::GraphicsPipeline<
-        vulkano::pipeline::vertex::SingleBufferDefinition<Vec2>,
-        Box<vulkano::descriptor::PipelineLayoutAbstract + Sync + Send>,
-        Arc<vulkano::framebuffer::RenderPassAbstract + Send + Sync>>>,
-    set: Arc<descriptor_set::DescriptorSet + Send +  Sync>,
+    pipeline: Arc<
+        vulkano::pipeline::GraphicsPipeline<
+            vulkano::pipeline::vertex::SingleBufferDefinition<Vec2>,
+            Box<vulkano::descriptor::PipelineLayoutAbstract + Sync + Send>,
+            Arc<vulkano::framebuffer::RenderPassAbstract + Send + Sync>,
+        >,
+    >,
+    set: Arc<descriptor_set::DescriptorSet + Send + Sync>,
     renderpass: Arc<vulkano::framebuffer::RenderPassAbstract + Send + Sync>,
     framebuffers: Option<
-            Vec<Arc<vulkano::framebuffer::Framebuffer<
-            Arc<vulkano::framebuffer::RenderPassAbstract + Send + Sync>,
-            ((), Arc<vulkano::image::SwapchainImage>)>>>
+        Vec<
+            Arc<
+                vulkano::framebuffer::Framebuffer<
+                    Arc<vulkano::framebuffer::RenderPassAbstract + Send + Sync>,
+                    ((), Arc<vulkano::image::SwapchainImage>),
+                >,
+            >,
         >,
+    >,
     vertex_buffer: Arc<vulkano::buffer::cpu_access::CpuAccessibleBuffer<[Vec2]>>,
 }
 
@@ -37,7 +45,6 @@ impl GraphicsPart {
         physical: vulkano::instance::PhysicalDevice,
         queue: Arc<vulkano::device::Queue>,
     ) -> GraphicsPart {
-
         let vs = vs::Shader::load(device.clone()).expect("failed to create shader module");
         let fs = fs::Shader::load(device.clone()).expect("failed to create shader module");
 
@@ -83,8 +90,8 @@ impl GraphicsPart {
                 .blend_alpha_blending()
                 .render_pass(
                     vulkano::framebuffer::Subpass::from(
-                        renderpass.clone() as
-                            Arc<vulkano::framebuffer::RenderPassAbstract + Send + Sync>,
+                        renderpass.clone()
+                            as Arc<vulkano::framebuffer::RenderPassAbstract + Send + Sync>,
                         0,
                     ).unwrap(),
                 )
@@ -115,10 +122,18 @@ impl GraphicsPart {
             device.clone(),
             vulkano::buffer::BufferUsage::all(),
             [
-                Vec2 { position: [-1.0, -1.0] },
-                Vec2 { position: [-1.0, 1.0] },
-                Vec2 { position: [1.0, -1.0] },
-                Vec2 { position: [1.0, 1.0] },
+                Vec2 {
+                    position: [-1.0, -1.0],
+                },
+                Vec2 {
+                    position: [-1.0, 1.0],
+                },
+                Vec2 {
+                    position: [1.0, -1.0],
+                },
+                Vec2 {
+                    position: [1.0, 1.0],
+                },
             ].iter()
                 .cloned(),
         ).expect("failed to create buffer");
@@ -194,22 +209,30 @@ impl GraphicsPart {
         builder: vulkano::command_buffer::AutoCommandBufferBuilder,
         image_num: usize,
     ) -> vulkano::command_buffer::AutoCommandBufferBuilder {
-        builder.begin_render_pass(
-            self.framebuffers.as_ref().unwrap()[image_num].clone(), false,
-            vec![[0.0, 0.0, 1.0, 1.0].into()])
+        builder
+            .begin_render_pass(
+                self.framebuffers.as_ref().unwrap()[image_num].clone(),
+                false,
+                vec![[0.0, 0.0, 1.0, 1.0].into()],
+            )
             .unwrap()
-            .draw(self.pipeline.clone(),
-            vulkano::command_buffer::DynamicState {
-                line_width: None,
-                viewports: Some(vec![vulkano::pipeline::viewport::Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [self.dimensions[0] as f32, self.dimensions[1] as f32],
-                    depth_range: 0.0 .. 1.0,
-                }]),
-                scissors: None,
-            },
-            self.vertex_buffer.clone(),
-            self.set.clone(), ())
+            .draw(
+                self.pipeline.clone(),
+                vulkano::command_buffer::DynamicState {
+                    line_width: None,
+                    viewports: Some(vec![
+                        vulkano::pipeline::viewport::Viewport {
+                            origin: [0.0, 0.0],
+                            dimensions: [self.dimensions[0] as f32, self.dimensions[1] as f32],
+                            depth_range: 0.0..1.0,
+                        },
+                    ]),
+                    scissors: None,
+                },
+                self.vertex_buffer.clone(),
+                self.set.clone(),
+                (),
+            )
             .unwrap()
     }
 
@@ -252,10 +275,14 @@ fn create_swapchain(
     dimensions: [u32; 2],
     physical: vulkano::instance::PhysicalDevice,
     queue: Arc<vulkano::device::Queue>,
-) -> (Arc<vulkano::swapchain::Swapchain>, Vec<Arc<vulkano::image::SwapchainImage>>) {
-    let caps = window.surface().capabilities(physical).expect(
-        "failed to get surface capabilities",
-    );
+) -> (
+    Arc<vulkano::swapchain::Swapchain>,
+    Vec<Arc<vulkano::image::SwapchainImage>>,
+) {
+    let caps = window
+        .surface()
+        .capabilities(physical)
+        .expect("failed to get surface capabilities");
 
     let usage = caps.supported_usage_flags;
     let alpha = caps.supported_composite_alpha.iter().next().unwrap();

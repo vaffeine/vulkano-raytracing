@@ -14,36 +14,57 @@ layout (set = 0, binding = 1) uniform Constants {
   Camera camera;
 };
 
-layout (std140, set = 0, binding = 2) buffer Positions
+layout (std140, set = 1, binding = 0) buffer Positions
 {
-  vec3 data[];
-} positions;
+  vec3 positions[];
+};
 
-layout (std140, set = 0, binding = 3) buffer Indices
+layout (std140, set = 1, binding = 1) buffer Indices
 {
-  uvec3 data[];
-} indices;
+  uvec3 indices[];
+};
 
-layout (std140, set = 0, binding = 4) buffer Noramls
+layout (std140, set = 1, binding = 2) buffer Noramls
 {
-  vec3 data[];
-} normals;
+  vec3 normals[];
+};
 
-layout (std140, set = 0, binding = 5) buffer TexCoords
+layout (std140, set = 1, binding = 3) buffer TexCoords
 {
-  vec3 data[];
-} tex_coords;
+  vec2 texcoords[];
+};
 
 struct Model {
   uint indices_start;
   uint indices_end;
-  uint material_index;
+  int material_idx;
 };
 
-layout (std140, set = 0, binding = 6) buffer Models
+layout (std140, set = 1, binding = 4) buffer Models
 {
-  Model data[];
-} models;
+  Model models[];
+};
+
+struct Material {
+  vec3 ambient;
+  vec3 diffuse;
+  vec3 specular;
+  float shininess;
+  float dissolve;
+  float optical_density;
+  int ambient_texture_idx;
+  int diffuse_texture_idx;
+  int specular_texture_idx;
+  int normal_texture_idx;
+  int disolve_texture_idx;
+};
+
+layout (std140, set = 1, binding = 5) buffer Materials
+{
+  Material materials[];
+};
+
+layout(set = 1, binding = 6) uniform sampler2D diffuse_textures[1];
 
 struct Ray {
   vec3 orig;
@@ -53,13 +74,24 @@ struct Ray {
 struct IntersectionResult {
   vec2 uv;
   float time;
+  uvec3 triangle;
   bool intersect;
 };
 
-IntersectionResult intersection_result() {
+IntersectionResult intersection(in vec2 uv, in float time, in uvec3 triangle) {
+  IntersectionResult result;
+  result.uv = uv;
+  result.time = time;
+  result.triangle = triangle;
+  result.intersect = true;
+  return result;
+}
+
+IntersectionResult void_intersection() {
   IntersectionResult result;
   result.time = 1e20;
   result.uv = vec2(0.0);
+  result.intersect = false;
   return result;
 }
 
@@ -72,9 +104,9 @@ IntersectionResult no_intersection() {
 IntersectionResult intersect(in Ray ray, in uvec3 triangle)
 {
   const float kEpsilon = 1e-8;
-  vec3 v0 = positions.data[triangle.x];
-  vec3 v1 = positions.data[triangle.y];
-  vec3 v2 = positions.data[triangle.z];
+  vec3 v0 = positions[triangle.x];
+  vec3 v1 = positions[triangle.y];
+  vec3 v2 = positions[triangle.z];
   vec3 v0v1 = v1 - v0;
   vec3 v0v2 = v2 - v0;
   vec3 pvec = cross(ray.dir, v0v2);
@@ -98,18 +130,13 @@ IntersectionResult intersect(in Ray ray, in uvec3 triangle)
 
   float t = dot(v0v2, qvec) * invDet;
 
-  IntersectionResult result;
-  result.intersect = true;
-  result.time = t;
-  result.uv = vec2(u, v);
-  return result;
+  return intersection(vec2(u, v), t, triangle);
 }
 
-
 IntersectionResult intersect_model(in Ray ray, in Model model) {
-  IntersectionResult best = intersection_result();
+  IntersectionResult best = void_intersection();
   for (uint i = model.indices_start; i < model.indices_end; ++i) {
-    IntersectionResult result = intersect(ray, indices.data[i]);
+    IntersectionResult result = intersect(ray, indices[i]);
     if (result.intersect && best.time > result.time) {
       best = result;
     }
@@ -118,14 +145,31 @@ IntersectionResult intersect_model(in Ray ray, in Model model) {
 }
 
 vec3 trace(in Ray ray) {
-  IntersectionResult best = intersection_result();
-  for (uint i = 0; i < models.data.length(); ++i) {
-    IntersectionResult result = intersect_model(ray, models.data[i]);
+  IntersectionResult best = void_intersection();
+  uint hit_model_idx;
+  for (uint i = 0; i < models.length(); ++i) {
+    IntersectionResult result = intersect_model(ray, models[i]);
     if (result.intersect && best.time > result.time) {
       best = result;
+      hit_model_idx = i;
     }
   }
-  return vec3(best.uv, 0.0);
+
+  if (best.intersect) {
+    uint material_idx = models[hit_model_idx].material_idx;
+    Material material = materials[material_idx];
+    if (material.diffuse_texture_idx != -1) {
+      vec2 st0 = texcoords[best.triangle.x];
+      vec2 st1 = texcoords[best.triangle.y];
+      vec2 st2 = texcoords[best.triangle.z];
+      vec2 rel_uv = (1.0 - best.uv.x - best.uv.y) * st0 + best.uv.x * st1 + best.uv.y * st2;
+      return texture(diffuse_textures[material.diffuse_texture_idx], rel_uv).rgb;
+    } else {
+      return vec3(material.diffuse);
+    }
+  }
+
+  return vec3(0.0, 0.0, 0.0);
 }
 
 Ray primary_ray(in vec2 uv) {

@@ -1,3 +1,4 @@
+#[repr(align(16))]
 #[derive(Debug, Clone)]
 pub struct Vec2 {
     pub position: [f32; 2],

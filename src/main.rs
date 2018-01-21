@@ -2,15 +2,15 @@
 #![feature(attr_literals)]
 
 extern crate cgmath;
-extern crate winit;
 extern crate tobj;
+extern crate winit;
 
 #[macro_use]
 extern crate vulkano;
 #[macro_use]
 extern crate vulkano_shader_derive;
-extern crate vulkano_win;
 extern crate vulkano_text;
+extern crate vulkano_win;
 
 mod gl_types;
 mod graphics;
@@ -19,27 +19,19 @@ mod fps_counter;
 mod input;
 mod camera;
 mod cs;
+mod scene;
 
-use vulkano::sync::{GpuFuture, now};
+use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
-use vulkano_text::{UpdateTextCache, DrawTextTrait};
+use vulkano_text::{DrawTextTrait, UpdateTextCache};
 
 use graphics::GraphicsPart;
 use tracer::ComputePart;
 use fps_counter::FPSCounter;
-use gl_types::{Vec3, UVec3};
 use input::{Keyboard, Mouse};
 
 use std::sync::Arc;
 use std::path::Path;
-
-fn obj_to_buffers(path: &Path) -> Result<(Vec<f32>, Vec<u32>), tobj::LoadError> {
-    use tobj;
-    let (mut models, _) = tobj::load_obj(&path)?;
-    assert!(models.len() == 1);
-    let mesh = models.pop().unwrap().mesh;
-    Ok((mesh.positions, mesh.indices))
-}
 
 fn queue_paragraph(drawer: &mut vulkano_text::DrawText, x: f32, y: f32, size: f32, text: &str) {
     for (idx, line) in text.lines().enumerate() {
@@ -53,10 +45,64 @@ fn queue_paragraph(drawer: &mut vulkano_text::DrawText, x: f32, y: f32, size: f3
     }
 }
 
+#[cfg(debug_assertions)]
+fn message_types() -> vulkano::instance::debug::MessageTypes {
+    vulkano::instance::debug::MessageTypes {
+        error: true,
+        warning: true,
+        performance_warning: true,
+        information: true,
+        debug: true,
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn message_types() -> vulkano::instance::debug::MessageTypes {
+    vulkano::instance::debug::MessageTypes {
+        error: true,
+        warning: true,
+        performance_warning: true,
+        information: false,
+        debug: false,
+    }
+}
+
 fn main() {
-    let extensions = vulkano_win::required_extensions();
-    let instance = vulkano::instance::Instance::new(None, &extensions, &[])
+    let extensions = vulkano::instance::InstanceExtensions {
+        ext_debug_report: true,
+        ..vulkano_win::required_extensions()
+    };
+    let available_layers: Vec<_> = vulkano::instance::layers_list().unwrap().collect();
+    println!("Available layers:");
+    for l in &available_layers {
+        println!("\t{}", l.name());
+    }
+    let desired_layers = vec!["VK_LAYER_LUNARG_standard_validation"];
+    let layers: Vec<_> = desired_layers
+        .into_iter()
+        .filter(|&l| available_layers.iter().any(|li| li.name() == l))
+        .collect();
+    println!("Using layers: {:?}", layers);
+    let instance = vulkano::instance::Instance::new(None, &extensions, &layers)
         .expect("failed to create instance");
+
+    let _debug_callback =
+        vulkano::instance::debug::DebugCallback::new(&instance, message_types(), |msg| {
+            let ty = if msg.ty.error {
+                "error"
+            } else if msg.ty.warning {
+                "warning"
+            } else if msg.ty.performance_warning {
+                "performance_warning"
+            } else if msg.ty.information {
+                "information"
+            } else if msg.ty.debug {
+                "debug"
+            } else {
+                panic!("no-impl");
+            };
+            println!("{} [{}] : {}", msg.layer_prefix, ty, msg.description);
+        }).ok();
 
     let physical = vulkano::instance::PhysicalDevice::enumerate(&instance)
         .next()
@@ -69,16 +115,14 @@ fn main() {
 
     let mut events_loop = winit::EventsLoop::new();
     let window = winit::WindowBuilder::new()
-        .with_dimensions(1280, 720)
+        .with_dimensions(600, 600)
         .build_vk_surface(&events_loop, instance.clone())
         .unwrap();
     window.window().set_cursor(winit::MouseCursor::NoneCursor);
 
     let queue = physical
         .queue_families()
-        .find(|&q| {
-            q.supports_graphics() && window.surface().is_supported(q).unwrap_or(false)
-        })
+        .find(|&q| q.supports_graphics() && window.surface().is_supported(q).unwrap_or(false))
         .expect("couldn't find a graphical queue family");
 
     let device_ext = vulkano::device::DeviceExtensions {
@@ -93,43 +137,18 @@ fn main() {
     ).expect("failed to create device");
     let queue = queues.next().unwrap();
 
-    let (positions, indices) = {
-        let (pos_vec, ind_vec) = obj_to_buffers(&Path::new(
-            &std::env::args().nth(1).expect("no model passed"),
-        )).expect("failed to load model");
-        (
-            vulkano::buffer::CpuAccessibleBuffer::from_iter(
-                device.clone(),
-                vulkano::buffer::BufferUsage::all(),
-                pos_vec.chunks(3).enumerate().map(|(i, chunk)| {
-                    let vec = Vec3 { position: [chunk[0], chunk[1], chunk[2] - 5.0] };
-                    println!("{}: {:?}", i, vec);
-                    vec
-                }),
-            ).expect("failed to create positions buffer"),
-            vulkano::buffer::CpuAccessibleBuffer::from_iter(
-                device.clone(),
-                vulkano::buffer::BufferUsage::all(),
-                ind_vec.chunks(3).map(|chunk| {
-                    let vec = UVec3 { position: [chunk[0], chunk[1], chunk[2]] };
-                    println!("{:?}", vec);
-                    vec
-                }),
-            ).expect("failed to create indices buffer"),
-        )
-    };
+    let (scene_buffers, load_future) = scene::ModelBuffers::from_obj(
+        &Path::new(&std::env::args().nth(1).expect("no model passed")),
+        device.clone(),
+        queue.clone(),
+    ).expect("failed to load model");
 
     let mut graphics = GraphicsPart::new(device.clone(), &window, physical.clone(), queue.clone());
     let mut camera = camera::Camera::new([40.0, 40.0]);
     let uniform_buffer =
         vulkano::buffer::CpuBufferPool::<cs::ty::Constants>::uniform_buffer(device.clone());
 
-    let mut compute = ComputePart::new(
-        &device,
-        graphics.texture.clone(),
-        positions.clone(),
-        indices.clone(),
-    );
+    let mut compute = ComputePart::new(&device, graphics.texture.clone(), scene_buffers);
     let mut text_drawer = vulkano_text::DrawText::new(
         device.clone(),
         queue.clone(),
@@ -137,7 +156,7 @@ fn main() {
         &graphics.images,
     );
 
-    let mut previous_frame_end = Box::new(now(device.clone())) as Box<GpuFuture>;
+    let mut previous_frame_end = load_future;
 
     let mut fps_counter = FPSCounter::new(fps_counter::Duration::milliseconds(100));
     let mut keyboard = Keyboard::new();
@@ -153,7 +172,7 @@ fn main() {
 
         graphics.recreate_framebuffers();
 
-        let (image_num, future) = match graphics.acquire_next_image() {
+        let (image_num, aquire_future) = match graphics.acquire_next_image() {
             Ok(r) => r,
             Err(vulkano::swapchain::AcquireError::OutOfDate) => {
                 continue;
@@ -161,9 +180,13 @@ fn main() {
             Err(err) => panic!("{:?}", err),
         };
 
-        let uniform = Arc::new(uniform_buffer.next(cs::ty::Constants {
-            camera: camera.gpu_camera::<cs::ty::Camera>(),
-        }));
+        let uniform = Arc::new(
+            uniform_buffer
+                .next(cs::ty::Constants {
+                    camera: camera.gpu_camera::<cs::ty::Camera>(),
+                })
+                .expect("failed to create uniform buffer"),
+        );
 
         let cb = {
             let mut cbb =
@@ -187,7 +210,7 @@ fn main() {
         };
 
         let future = previous_frame_end
-            .join(future)
+            .join(aquire_future)
             .then_execute(queue.clone(), cb)
             .unwrap()
             .then_swapchain_present(queue.clone(), graphics.swapchain.clone(), image_num)
@@ -201,6 +224,7 @@ fn main() {
         } else {
             0
         };
+
         queue_paragraph(
             &mut text_drawer,
             10.0,
@@ -220,17 +244,23 @@ fn main() {
 
         let mut done = false;
         events_loop.poll_events(|ev| match ev {
-            winit::Event::WindowEvent { event: winit::WindowEvent::Closed, .. } => done = true,
-            winit::Event::WindowEvent { event: winit::WindowEvent::Resized(_, _), .. } => {
-                graphics.recreate_swapchain = true
-            }
             winit::Event::WindowEvent {
-                event: winit::WindowEvent::KeyboardInput { input, .. }, ..
+                event: winit::WindowEvent::Closed,
+                ..
+            } => done = true,
+            winit::Event::WindowEvent {
+                event: winit::WindowEvent::Resized(_, _),
+                ..
+            } => graphics.recreate_swapchain = true,
+            winit::Event::WindowEvent {
+                event: winit::WindowEvent::KeyboardInput { input, .. },
+                ..
             } => {
                 keyboard.handle_keypress(&input);
             }
             winit::Event::DeviceEvent {
-                event: winit::DeviceEvent::Motion { axis, value }, ..
+                event: winit::DeviceEvent::Motion { axis, value },
+                ..
             } => {
                 mouse.handle_mousemove(axis, value);
             }

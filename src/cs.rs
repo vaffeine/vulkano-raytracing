@@ -1,4 +1,4 @@
-#[allow(dead_code)]
+#![allow(dead_code)]
 #[derive(VulkanoShader)]
 #[ty = "compute"]
 #[path = "shaders/raytracing.comp"]
