@@ -146,6 +146,20 @@ IntersectionResult intersect_model(in Ray ray, in Model model) {
   return best;
 }
 
+vec2 point_st(in uvec3 triangle, in vec3 wuv) {
+  vec2 st0 = texcoords[triangle.x];
+  vec2 st1 = texcoords[triangle.y];
+  vec2 st2 = texcoords[triangle.z];
+  return wuv.x * st0 + wuv.y * st1 + wuv.z * st2;
+}
+
+vec3 point_norm(in uvec3 triangle, in vec3 wuv) {
+  vec3 norm0 = normals[triangle.x];
+  vec3 norm1 = normals[triangle.y];
+  vec3 norm2 = normals[triangle.z];
+  return wuv.x * norm0 + wuv.y * norm1 + wuv.z * norm2;
+}
+
 vec3 trace(in Ray ray) {
   IntersectionResult best = void_intersection();
   uint hit_model_idx;
@@ -158,19 +172,19 @@ vec3 trace(in Ray ray) {
   }
 
   if (best.intersect) {
+    vec3 wuv = vec3(1.0 - best.uv.x - best.uv.y, best.uv.x, best.uv.y);
+    vec3 norm = point_norm(best.triangle, wuv);
+    float cosine_factor = -1.0 * dot(norm, ray.dir);
     uint material_idx = models[hit_model_idx].material_idx;
     if (material_idx == -1) {
-      return vec3(1.0, 1.0, 1.0);
+      return cosine_factor * vec3(1.0, 1.0, 1.0);
     }
     Material material = materials[material_idx];
     if (material.diffuse_texture_idx != -1) {
-      vec2 st0 = texcoords[best.triangle.x];
-      vec2 st1 = texcoords[best.triangle.y];
-      vec2 st2 = texcoords[best.triangle.z];
-      vec2 rel_uv = (1.0 - best.uv.x - best.uv.y) * st0 + best.uv.x * st1 + best.uv.y * st2;
-      return texture(diffuse_textures[material.diffuse_texture_idx], rel_uv).rgb;
+      vec2 st = point_st(best.triangle, wuv);
+      return cosine_factor * texture(diffuse_textures[material.diffuse_texture_idx], st).rgb;
     } else {
-      return vec3(material.diffuse);
+      return cosine_factor * vec3(material.diffuse);
     }
   }
 
