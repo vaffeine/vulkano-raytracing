@@ -4,17 +4,19 @@ extern crate vulkano;
 
 use gl_types::{UVec3, Vec2, Vec3};
 
+use vulkano::sync::GpuFuture;
+
 use std::path::Path;
 use std::sync::Arc;
 
 use cs;
 
 pub struct ModelBuffers {
+    pub models: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     pub positions: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     pub indices: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     pub normals: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     pub texcoords: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
-    pub models: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     pub materials: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     pub textures: Vec<Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>>,
 }
@@ -26,50 +28,128 @@ impl ModelBuffers {
         queue: Arc<vulkano::device::Queue>,
     ) -> Result<(ModelBuffers, Box<vulkano::sync::GpuFuture>), tobj::LoadError> {
         use tobj;
-        let (mut models, mut materials) = tobj::load_obj(&path)?;
-        assert!(models.len() == 1);
-        let mesh = models.pop().unwrap().mesh;
-        let material = materials.pop().unwrap();
+        let (obj_models, obj_materials) = tobj::load_obj(&path)?;
+        let (models, positions, indices, normals, texcoords) = load_mesh(obj_models);
+        let (materials, textures, future) =
+            load_materials(device.clone(), queue.clone(), obj_materials);
+        println!("Scene has {} faces", indices.len() / 3);
 
-        let positions = to_buffer_vec3::<f32, Vec3>(device.clone(), &mesh.positions);
-        let indices = to_buffer_vec3::<u32, UVec3>(device.clone(), &mesh.indices);
-        let normals = to_buffer_vec3::<f32, Vec3>(device.clone(), &mesh.normals);
-        let texcoords = to_buffer_vec2::<f32, Vec2>(device.clone(), &mesh.texcoords);
-        let models = vulkano::buffer::CpuAccessibleBuffer::from_data(
+        let buffer_models = vulkano::buffer::CpuAccessibleBuffer::from_iter(
             device.clone(),
             vulkano::buffer::BufferUsage::all(),
-            cs::ty::Model {
-                indices_start: 0,
-                indices_end: mesh.indices.len() as u32,
-                material_idx: 0,
-                _dummy0: [0; 4],
-            },
+            models.into_iter(),
         ).unwrap();
-        let (gpu_material, texture, future) =
-            load_material(&material, device.clone(), queue.clone()).unwrap();
-        let materials = vulkano::buffer::CpuAccessibleBuffer::from_data(
+        let buffer_positions = to_buffer_vec3::<f32, Vec3>(device.clone(), &positions);
+        let buffer_indices = to_buffer_vec3::<u32, UVec3>(device.clone(), &indices);
+        let buffer_normals = to_buffer_vec3::<f32, Vec3>(device.clone(), &normals);
+        let buffer_texcoords = to_buffer_vec2::<f32, Vec2>(device.clone(), &texcoords);
+        let buffer_materials = vulkano::buffer::CpuAccessibleBuffer::from_iter(
             device.clone(),
             vulkano::buffer::BufferUsage::all(),
-            gpu_material,
+            materials.into_iter(),
         ).unwrap();
-        let textures = match texture {
-            Some(t) => vec![t],
-            None => Vec::new(),
-        };
 
         Ok((
             ModelBuffers {
-                positions,
-                indices,
-                normals,
-                texcoords,
-                models,
-                materials,
-                textures,
+                models: buffer_models,
+                positions: buffer_positions,
+                indices: buffer_indices,
+                normals: buffer_normals,
+                texcoords: buffer_texcoords,
+                materials: buffer_materials,
+                textures: textures,
             },
             future,
         ))
     }
+}
+
+fn load_materials(
+    device: Arc<vulkano::device::Device>,
+    queue: Arc<vulkano::device::Queue>,
+    obj_materials: Vec<tobj::Material>,
+) -> (
+    Vec<cs::ty::Material>,
+    Vec<Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>>,
+    Box<vulkano::sync::GpuFuture>,
+) {
+    let mut materials = Vec::new();
+    let mut textures = Vec::with_capacity(16);
+    let (ei, mut future) = empty_image(queue.clone());
+    for obj_material in obj_materials {
+        let (material, texture, f) = load_material(
+            &obj_material,
+            textures.len() as i32,
+            device.clone(),
+            queue.clone(),
+        ).unwrap();
+        materials.push(material);
+        future = Box::new(future.join(f));
+        match texture {
+            Some(t) => {
+                textures.push(t);
+            }
+            None => (),
+        };
+    }
+    for _ in 0..16 - textures.len() {
+        textures.push(ei.clone());
+    }
+    (materials, textures, future)
+}
+
+fn load_mesh(
+    obj_models: Vec<tobj::Model>,
+) -> (Vec<cs::ty::Model>, Vec<f32>, Vec<u32>, Vec<f32>, Vec<f32>) {
+    let mut models = Vec::new();
+    let mut positions = Vec::new();
+    let mut indices = Vec::new();
+    let mut normals = Vec::new();
+    let mut texcoords = Vec::new();
+
+    for obj_model in obj_models {
+        let mut mesh = obj_model.mesh;
+
+        let material_idx = match mesh.material_id {
+            Some(id) => id as i32,
+            None => -1,
+        };
+        models.push(cs::ty::Model {
+            indices_start: indices.len() as u32 / 3,
+            indices_end: (indices.len() + mesh.indices.len()) as u32 / 3,
+            material_idx: material_idx,
+            _dummy0: [0; 4],
+        });
+
+        indices.extend(
+            mesh.indices
+                .into_iter()
+                .map(|i| i + positions.len() as u32 / 3),
+        );
+        positions.append(&mut mesh.positions);
+        normals.append(&mut mesh.normals);
+        texcoords.append(&mut mesh.texcoords);
+    }
+    (models, positions, indices, normals, texcoords)
+}
+
+fn empty_image(
+    queue: Arc<vulkano::device::Queue>,
+) -> (
+    Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>,
+    Box<vulkano::sync::GpuFuture>,
+) {
+    let pixel = vec![255u8; 4];
+    let (texture, future) = vulkano::image::immutable::ImmutableImage::from_iter(
+        pixel.into_iter(),
+        vulkano::image::Dimensions::Dim2d {
+            width: 1,
+            height: 1,
+        },
+        vulkano::format::R8G8B8A8Srgb,
+        queue,
+    ).unwrap();
+    (texture, Box::new(future))
 }
 
 fn load_texture(
@@ -99,6 +179,7 @@ fn load_texture(
 
 fn load_material(
     material: &tobj::Material,
+    texture_idx: i32,
     device: Arc<vulkano::device::Device>,
     queue: Arc<vulkano::device::Queue>,
 ) -> image::ImageResult<
@@ -108,6 +189,16 @@ fn load_material(
         Box<vulkano::sync::GpuFuture>,
     ),
 > {
+    let (texture, future, texture_idx) = if material.diffuse_texture != "" {
+        let (texture, future) = load_texture(&Path::new(&material.diffuse_texture), queue)?;
+        (Some(texture), future, texture_idx)
+    } else {
+        (
+            None,
+            Box::new(vulkano::sync::now(device.clone())) as Box<vulkano::sync::GpuFuture>,
+            -1,
+        )
+    };
     let gpu_material = cs::ty::Material {
         ambient: material.ambient,
         diffuse: material.diffuse,
@@ -116,7 +207,7 @@ fn load_material(
         dissolve: material.dissolve,
         optical_density: material.optical_density,
         ambient_texture_idx: -1,
-        diffuse_texture_idx: 0,
+        diffuse_texture_idx: texture_idx,
         specular_texture_idx: -1,
         normal_texture_idx: -1,
         disolve_texture_idx: -1,
@@ -124,16 +215,7 @@ fn load_material(
         _dummy1: [0; 4],
         _dummy2: [0; 4],
     };
-    if material.diffuse_texture != "" {
-        let (texture, future) = load_texture(&Path::new(&material.diffuse_texture), queue)?;
-        Ok((gpu_material, Some(texture), future))
-    } else {
-        Ok((
-            gpu_material,
-            None,
-            Box::new(vulkano::sync::now(device.clone())),
-        ))
-    }
+    Ok((gpu_material, texture, future))
 }
 
 trait FromArr3<T> {

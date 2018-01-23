@@ -64,7 +64,9 @@ layout (std140, set = 1, binding = 5) buffer Materials
   Material materials[];
 };
 
-layout(set = 1, binding = 6) uniform sampler2D diffuse_textures[1];
+// I would like to use sampler2DArray, but this extension is supported only by NVidia
+// Maximum number of 16, however, is supported by 97% of GPUs
+layout(set = 1, binding = 6) uniform sampler2D diffuse_textures[16];
 
 struct Ray {
   vec3 orig;
@@ -111,7 +113,7 @@ IntersectionResult intersect(in Ray ray, in uvec3 triangle)
   vec3 v0v2 = v2 - v0;
   vec3 pvec = cross(ray.dir, v0v2);
   float det = dot(v0v1, pvec);
-  if (det < kEpsilon) {
+  if (abs(det) < kEpsilon) {
     return no_intersection();
   }
   float invDet = 1.0 / det;
@@ -157,6 +159,9 @@ vec3 trace(in Ray ray) {
 
   if (best.intersect) {
     uint material_idx = models[hit_model_idx].material_idx;
+    if (material_idx == -1) {
+      return vec3(1.0, 1.0, 1.0);
+    }
     Material material = materials[material_idx];
     if (material.diffuse_texture_idx != -1) {
       vec2 st0 = texcoords[best.triangle.x];

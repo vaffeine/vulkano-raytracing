@@ -24,7 +24,7 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
         device: &Arc<vulkano::device::Device>,
         image: Arc<I>,
         buffers: scene::ModelBuffers,
-    ) -> ComputePart<I> {
+    ) -> Result<ComputePart<I>, descriptor_set::PersistentDescriptorSetError> {
         let shader = cs::Shader::load(device.clone()).expect("failed to create shader module");
         let pipeline = Arc::new(
             vulkano::pipeline::ComputePipeline::new(
@@ -35,30 +35,42 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
         );
         let sampler = vulkano::sampler::Sampler::simple_repeat_linear(device.clone());
         let pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 0);
-        let persistent_set = descriptor_set::PersistentDescriptorSet::start(pipeline.clone(), 1)
-            .add_buffer(buffers.positions.clone())
-            .unwrap()
-            .add_buffer(buffers.indices.clone())
-            .unwrap()
-            .add_buffer(buffers.normals.clone())
-            .unwrap()
-            .add_buffer(buffers.texcoords.clone())
-            .unwrap()
-            .add_buffer(buffers.models.clone())
-            .unwrap()
-            .add_buffer(buffers.materials.clone())
-            .unwrap()
-            .add_sampled_image(buffers.textures[0].clone(), sampler)
-            .unwrap()
-            .build()
-            .unwrap();
+        let persistent_set = Arc::new(
+            descriptor_set::PersistentDescriptorSet::start(pipeline.clone(), 1)
+                .add_buffer(buffers.positions.clone())?
+                .add_buffer(buffers.indices.clone())?
+                .add_buffer(buffers.normals.clone())?
+                .add_buffer(buffers.texcoords.clone())?
+                .add_buffer(buffers.models.clone())?
+                .add_buffer(buffers.materials.clone())?
+                .enter_array()?
+                .add_sampled_image(buffers.textures[0].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[1].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[2].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[3].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[4].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[5].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[6].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[7].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[8].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[9].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[10].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[11].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[12].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[13].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[14].clone(), sampler.clone())?
+                .add_sampled_image(buffers.textures[15].clone(), sampler.clone())?
+                .leave_array()?
+                .build()
+                .unwrap(),
+        );
 
-        ComputePart {
+        Ok(ComputePart {
             pipeline: pipeline,
             image: image,
             pool: pool,
-            persistent_set: Arc::new(persistent_set),
-        }
+            persistent_set: persistent_set,
+        })
     }
 
     pub fn render(

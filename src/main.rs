@@ -148,7 +148,7 @@ fn main() {
     let uniform_buffer =
         vulkano::buffer::CpuBufferPool::<cs::ty::Constants>::uniform_buffer(device.clone());
 
-    let mut compute = ComputePart::new(&device, graphics.texture.clone(), scene_buffers);
+    let mut compute = ComputePart::new(&device, graphics.texture.clone(), scene_buffers).unwrap();
     let mut text_drawer = vulkano_text::DrawText::new(
         device.clone(),
         queue.clone(),
