@@ -2,7 +2,7 @@ extern crate image;
 extern crate tobj;
 extern crate vulkano;
 
-use gl_types::{UVec3, Vec2, Vec3};
+use gl_types::{UVec3, Vec2, Vec3, FromArr2, FromArr3};
 
 use vulkano::sync::GpuFuture;
 
@@ -216,29 +216,6 @@ fn load_material(
         _dummy2: [0; 4],
     };
     Ok((gpu_material, texture, future))
-}
-
-trait FromArr3<T> {
-    fn from_arr3(position: [T; 3]) -> Self;
-}
-impl FromArr3<f32> for Vec3 {
-    fn from_arr3(position: [f32; 3]) -> Self {
-        Vec3 { position }
-    }
-}
-impl FromArr3<u32> for UVec3 {
-    fn from_arr3(position: [u32; 3]) -> Self {
-        UVec3 { position }
-    }
-}
-
-trait FromArr2<T> {
-    fn from_arr2(position: [T; 2]) -> Self;
-}
-impl FromArr2<f32> for Vec2 {
-    fn from_arr2(position: [f32; 2]) -> Self {
-        Vec2 { position }
-    }
 }
 
 fn to_buffer_vec2<'a, T, V>(

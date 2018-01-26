@@ -1,6 +1,6 @@
 extern crate winit;
 
-use super::std::mem;
+use std::mem;
 
 #[derive(Debug)]
 pub struct Keyboard {

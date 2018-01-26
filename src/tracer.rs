@@ -9,14 +9,14 @@ use scene;
 pub struct ComputePart<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> {
     pipeline: Arc<vulkano::pipeline::ComputePipelineAbstract + Send + Sync>,
     image: Arc<I>,
-    pool: descriptor_set::FixedSizeDescriptorSetsPool<
+    fsds_pool: descriptor_set::FixedSizeDescriptorSetsPool<
         Arc<
             vulkano::pipeline::ComputePipeline<
                 vulkano::descriptor::pipeline_layout::PipelineLayout<cs::Layout>,
             >,
         >,
     >,
-    persistent_set: Arc<vulkano::descriptor::DescriptorSet + Send + Sync>,
+    model_set: Arc<vulkano::descriptor::DescriptorSet + Send + Sync>,
 }
 
 impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> ComputePart<I> {
@@ -33,9 +33,9 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
                 &(),
             ).expect("failed to create compute pipeline"),
         );
+        let fsds_pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 0);
         let sampler = vulkano::sampler::Sampler::simple_repeat_linear(device.clone());
-        let pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 0);
-        let persistent_set = Arc::new(
+        let model_set = Arc::new(
             descriptor_set::PersistentDescriptorSet::start(pipeline.clone(), 1)
                 .add_buffer(buffers.positions.clone())?
                 .add_buffer(buffers.indices.clone())?
@@ -68,8 +68,8 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
         Ok(ComputePart {
             pipeline: pipeline,
             image: image,
-            pool: pool,
-            persistent_set: persistent_set,
+            fsds_pool: fsds_pool,
+            model_set: model_set,
         })
     }
 
@@ -83,7 +83,7 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
             .dispatch(
                 [dimensions[0] / 16, dimensions[1] / 16, 1],
                 self.pipeline.clone(),
-                (self.next_set(uniform.clone()), self.persistent_set.clone()),
+                (self.next_set(uniform.clone()), self.model_set.clone()),
                 (),
             )
             .unwrap()
@@ -94,7 +94,7 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
         uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     ) -> Arc<vulkano::descriptor::descriptor_set::DescriptorSet + Send + Sync> {
         Arc::new(
-            self.pool
+            self.fsds_pool
                 .next()
                 .add_image(self.image.clone())
                 .unwrap()

@@ -1,7 +1,9 @@
 extern crate vulkano;
 use vulkano::descriptor::descriptor_set;
 
+extern crate vulkano_text;
 extern crate vulkano_win;
+use vulkano_text::{DrawTextTrait, UpdateTextCache};
 
 use std::sync::Arc;
 use std::boxed::Box;
@@ -10,12 +12,12 @@ use std::mem;
 
 use gl_types::Vec2;
 
-pub struct GraphicsPart {
+pub struct GraphicsPart<'a> {
     pub dimensions: [u32; 2],
     pub swapchain: Arc<vulkano::swapchain::Swapchain>,
     pub recreate_swapchain: bool,
-    pub images: Vec<Arc<vulkano::image::swapchain::SwapchainImage>>,
     pub texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
+    images: Vec<Arc<vulkano::image::swapchain::SwapchainImage>>,
     pipeline: Arc<
         vulkano::pipeline::GraphicsPipeline<
             vulkano::pipeline::vertex::SingleBufferDefinition<Vec2>,
@@ -36,15 +38,16 @@ pub struct GraphicsPart {
         >,
     >,
     vertex_buffer: Arc<vulkano::buffer::cpu_access::CpuAccessibleBuffer<[Vec2]>>,
+    text_drawer: vulkano_text::DrawText<'a>,
 }
 
-impl GraphicsPart {
+impl<'a> GraphicsPart<'a> {
     pub fn new(
         device: Arc<vulkano::device::Device>,
         window: &vulkano_win::Window,
         physical: vulkano::instance::PhysicalDevice,
         queue: Arc<vulkano::device::Queue>,
-    ) -> GraphicsPart {
+    ) -> GraphicsPart<'a> {
         let vs = vs::Shader::load(device.clone()).expect("failed to create shader module");
         let fs = fs::Shader::load(device.clone()).expect("failed to create shader module");
 
@@ -138,6 +141,9 @@ impl GraphicsPart {
                 .cloned(),
         ).expect("failed to create buffer");
 
+        let text_drawer =
+            vulkano_text::DrawText::new(device.clone(), queue.clone(), swapchain.clone(), &images);
+
         GraphicsPart {
             pipeline: pipeline,
             dimensions: dimensions,
@@ -149,6 +155,7 @@ impl GraphicsPart {
             framebuffers: None,
             texture: texture,
             vertex_buffer: vertex_buffer,
+            text_drawer: text_drawer,
         }
     }
 
@@ -210,6 +217,7 @@ impl GraphicsPart {
         image_num: usize,
     ) -> vulkano::command_buffer::AutoCommandBufferBuilder {
         builder
+            .update_text_cache(&mut self.text_drawer)
             .begin_render_pass(
                 self.framebuffers.as_ref().unwrap()[image_num].clone(),
                 false,
@@ -234,6 +242,31 @@ impl GraphicsPart {
                 (),
             )
             .unwrap()
+            .draw_text(
+                &mut self.text_drawer,
+                self.dimensions[0],
+                self.dimensions[1],
+            )
+            .end_render_pass()
+            .unwrap()
+    }
+
+    pub fn queue_text(
+        &mut self,
+        x: f32,
+        y: f32,
+        size: f32,
+        text: &str,
+    ) {
+        for (idx, line) in text.lines().enumerate() {
+            self.text_drawer.queue_text(
+                x,
+                y + idx as f32 * size + size / 5.0,
+                size,
+                [1.0, 1.0, 1.0, 1.0],
+                line,
+            );
+        }
     }
 
     pub fn acquire_next_image(
