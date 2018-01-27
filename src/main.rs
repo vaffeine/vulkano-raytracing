@@ -144,8 +144,11 @@ fn main() {
     ).ok();
 
     let mut events_loop = winit::EventsLoop::new();
+    let w_width = 600;
+    let w_height = 600;
     let window = winit::WindowBuilder::new()
-        .with_dimensions(600, 600)
+        .with_min_dimensions(w_width, w_height)
+        .with_max_dimensions(w_width, w_height)
         .build_vk_surface(&events_loop, instance.clone())
         .unwrap();
     window.window().set_cursor(winit::MouseCursor::NoneCursor);
@@ -167,13 +170,15 @@ fn main() {
     let mut fps_counter = FPSCounter::new(fps_counter::Duration::milliseconds(100));
     let mut camera = camera::Camera::new([40.0, 40.0]);
 
-    let mut graphics = GraphicsPart::new(device.clone(), &window, physical.clone(), queue.clone());
-    let mut compute = ComputePart::new(&device, graphics.texture.clone(), scene_buffers).unwrap();
+    let (mut graphics, quad_future) =
+        GraphicsPart::new(device.clone(), &window, physical.clone(), queue.clone());
+    let mut compute = ComputePart::new(device.clone(), scene_buffers).unwrap();
 
     let uniform_buffer =
         vulkano::buffer::CpuBufferPool::<cs::ty::Constants>::uniform_buffer(device.clone());
 
-    let mut previous_frame_end = load_future;
+    let mut previous_frame_end =
+        Box::new(load_future.join(quad_future)) as Box<vulkano::sync::GpuFuture>;
     loop {
         previous_frame_end.cleanup_finished();
         fps_counter.end_frame();
@@ -207,7 +212,7 @@ fn main() {
                     queue.family(),
                 ).unwrap();
 
-            cbb = compute.render(cbb, graphics.dimensions, uniform);
+            cbb = compute.render(cbb, graphics.texture.clone(), uniform);
             cbb = graphics.draw(cbb, image_num);
 
             cbb.build().unwrap()

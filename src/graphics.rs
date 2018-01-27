@@ -37,7 +37,7 @@ pub struct GraphicsPart<'a> {
             >,
         >,
     >,
-    vertex_buffer: Arc<vulkano::buffer::cpu_access::CpuAccessibleBuffer<[Vec2]>>,
+    vertex_buffer: Arc<vulkano::buffer::ImmutableBuffer<[Vec2]>>,
     text_drawer: vulkano_text::DrawText<'a>,
 }
 
@@ -47,11 +47,9 @@ impl<'a> GraphicsPart<'a> {
         window: &vulkano_win::Window,
         physical: vulkano::instance::PhysicalDevice,
         queue: Arc<vulkano::device::Queue>,
-    ) -> GraphicsPart<'a> {
+    ) -> (GraphicsPart<'a>, Box<vulkano::sync::GpuFuture>) {
         let vs = vs::Shader::load(device.clone()).expect("failed to create shader module");
         let fs = fs::Shader::load(device.clone()).expect("failed to create shader module");
-
-        let sampler = create_sampler(device.clone());
 
         let dimensions = {
             let (width, height) = window.window().get_inner_size_pixels().unwrap();
@@ -114,16 +112,13 @@ impl<'a> GraphicsPart<'a> {
 
         let set = Arc::new(
             descriptor_set::PersistentDescriptorSet::start(pipeline.clone(), 0)
-                .add_sampled_image(texture.clone(), sampler.clone())
+                .add_sampled_image(texture.clone(), create_sampler(device.clone()))
                 .unwrap()
                 .build()
                 .unwrap(),
         );
 
-        // Change to ImmutableBuffer
-        let vertex_buffer = vulkano::buffer::cpu_access::CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            vulkano::buffer::BufferUsage::all(),
+        let (vertex_buffer, vertex_future) = vulkano::buffer::ImmutableBuffer::from_iter(
             [
                 Vec2 {
                     position: [-1.0, -1.0],
@@ -139,27 +134,35 @@ impl<'a> GraphicsPart<'a> {
                 },
             ].iter()
                 .cloned(),
+            vulkano::buffer::BufferUsage::vertex_buffer(),
+            queue.clone(),
         ).expect("failed to create buffer");
 
         let text_drawer =
             vulkano_text::DrawText::new(device.clone(), queue.clone(), swapchain.clone(), &images);
 
-        GraphicsPart {
-            pipeline: pipeline,
-            dimensions: dimensions,
-            swapchain: swapchain,
-            recreate_swapchain: false,
-            images: images,
-            set: set,
-            renderpass: renderpass,
-            framebuffers: None,
-            texture: texture,
-            vertex_buffer: vertex_buffer,
-            text_drawer: text_drawer,
-        }
+        (
+            GraphicsPart {
+                pipeline: pipeline,
+                dimensions: dimensions,
+                swapchain: swapchain,
+                recreate_swapchain: false,
+                images: images,
+                set: set,
+                renderpass: renderpass,
+                framebuffers: None,
+                texture: texture,
+                vertex_buffer: vertex_buffer,
+                text_drawer: text_drawer,
+            },
+            Box::new(vertex_future),
+        )
     }
 
-    pub fn recreate_swapchain(&mut self, window: &vulkano_win::Window) -> bool {
+    pub fn recreate_swapchain(
+        &mut self,
+        window: &vulkano_win::Window,
+    ) -> bool {
         if !self.recreate_swapchain {
             return false;
         }
@@ -180,8 +183,6 @@ impl<'a> GraphicsPart<'a> {
 
         mem::replace(&mut self.swapchain, new_swapchain);
         mem::replace(&mut self.images, new_images);
-
-        // TODO: recreate texture here
 
         self.framebuffers = None;
         self.recreate_swapchain = false;
@@ -251,13 +252,7 @@ impl<'a> GraphicsPart<'a> {
             .unwrap()
     }
 
-    pub fn queue_text(
-        &mut self,
-        x: f32,
-        y: f32,
-        size: f32,
-        text: &str,
-    ) {
+    pub fn queue_text(&mut self, x: f32, y: f32, size: f32, text: &str) {
         for (idx, line) in text.lines().enumerate() {
             self.text_drawer.queue_text(
                 x,

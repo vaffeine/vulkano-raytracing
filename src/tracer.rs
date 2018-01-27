@@ -6,9 +6,8 @@ use std::sync::Arc;
 use cs;
 use scene;
 
-pub struct ComputePart<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> {
+pub struct ComputePart {
     pipeline: Arc<vulkano::pipeline::ComputePipelineAbstract + Send + Sync>,
-    image: Arc<I>,
     fsds_pool: descriptor_set::FixedSizeDescriptorSetsPool<
         Arc<
             vulkano::pipeline::ComputePipeline<
@@ -19,12 +18,11 @@ pub struct ComputePart<I: 'static + vulkano::image::traits::ImageViewAccess + Se
     model_set: Arc<vulkano::descriptor::DescriptorSet + Send + Sync>,
 }
 
-impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> ComputePart<I> {
+impl ComputePart {
     pub fn new(
-        device: &Arc<vulkano::device::Device>,
-        image: Arc<I>,
+        device: Arc<vulkano::device::Device>,
         buffers: scene::ModelBuffers,
-    ) -> Result<ComputePart<I>, descriptor_set::PersistentDescriptorSetError> {
+    ) -> Result<ComputePart, descriptor_set::PersistentDescriptorSetError> {
         let shader = cs::Shader::load(device.clone()).expect("failed to create shader module");
         let pipeline = Arc::new(
             vulkano::pipeline::ComputePipeline::new(
@@ -67,7 +65,6 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
 
         Ok(ComputePart {
             pipeline: pipeline,
-            image: image,
             fsds_pool: fsds_pool,
             model_set: model_set,
         })
@@ -76,14 +73,15 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
     pub fn render(
         &mut self,
         builder: vulkano::command_buffer::AutoCommandBufferBuilder,
-        dimensions: [u32; 2],
+        texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
         uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync + 'static>,
     ) -> vulkano::command_buffer::AutoCommandBufferBuilder {
+        let dimensions = texture.dimensions();
         builder
             .dispatch(
-                [dimensions[0] / 16, dimensions[1] / 16, 1],
+                [dimensions.width() / 16, dimensions.height() / 16, 1],
                 self.pipeline.clone(),
-                (self.next_set(uniform.clone()), self.model_set.clone()),
+                (self.next_set(texture, uniform), self.model_set.clone()),
                 (),
             )
             .unwrap()
@@ -91,12 +89,13 @@ impl<I: 'static + vulkano::image::traits::ImageViewAccess + Send + Sync> Compute
 
     fn next_set(
         &mut self,
+        texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
         uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     ) -> Arc<vulkano::descriptor::descriptor_set::DescriptorSet + Send + Sync> {
         Arc::new(
             self.fsds_pool
                 .next()
-                .add_image(self.image.clone())
+                .add_image(texture)
                 .unwrap()
                 .add_buffer(uniform)
                 .unwrap()

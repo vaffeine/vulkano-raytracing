@@ -2,7 +2,7 @@ extern crate image;
 extern crate tobj;
 extern crate vulkano;
 
-use gl_types::{UVec3, Vec2, Vec3, FromArr2, FromArr3};
+use gl_types::{FromArr2, FromArr3, UVec3, Vec2, Vec3};
 
 use vulkano::sync::GpuFuture;
 
@@ -30,24 +30,44 @@ impl ModelBuffers {
         use tobj;
         let (obj_models, obj_materials) = tobj::load_obj(&path)?;
         let (models, positions, indices, normals, texcoords) = load_mesh(obj_models);
-        let (materials, textures, future) =
+        let (materials, textures, textures_future) =
             load_materials(device.clone(), queue.clone(), obj_materials);
         println!("Scene has {} faces", indices.len() / 3);
 
-        let buffer_models = vulkano::buffer::CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            vulkano::buffer::BufferUsage::all(),
+        let (buffer_models, models_future) = vulkano::buffer::ImmutableBuffer::from_iter(
             models.into_iter(),
+            vulkano::buffer::BufferUsage {
+                storage_buffer: true,
+                ..vulkano::buffer::BufferUsage::none()
+            },
+            queue.clone(),
         ).unwrap();
-        let buffer_positions = to_buffer_vec3::<f32, Vec3>(device.clone(), &positions);
-        let buffer_indices = to_buffer_vec3::<u32, UVec3>(device.clone(), &indices);
-        let buffer_normals = to_buffer_vec3::<f32, Vec3>(device.clone(), &normals);
-        let buffer_texcoords = to_buffer_vec2::<f32, Vec2>(device.clone(), &texcoords);
-        let buffer_materials = vulkano::buffer::CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            vulkano::buffer::BufferUsage::all(),
+        let (buffer_positions, positions_future) =
+            to_buffer_vec3::<f32, Vec3>(queue.clone(), &positions);
+        let (buffer_indices, indices_future) =
+            to_buffer_vec3::<u32, UVec3>(queue.clone(), &indices);
+        let (buffer_normals, normals_future) =
+            to_buffer_vec3::<f32, Vec3>(queue.clone(), &normals);
+        let (buffer_texcoords, texcoords_future) =
+            to_buffer_vec2::<f32, Vec2>(queue.clone(), &texcoords);
+        let (buffer_materials, materials_future) = vulkano::buffer::ImmutableBuffer::from_iter(
             materials.into_iter(),
+            vulkano::buffer::BufferUsage {
+                storage_buffer: true,
+                ..vulkano::buffer::BufferUsage::none()
+            },
+            queue.clone(),
         ).unwrap();
+
+        let future = Box::new(
+            textures_future
+                .join(models_future)
+                .join(positions_future)
+                .join(indices_future)
+                .join(normals_future)
+                .join(texcoords_future)
+                .join(materials_future),
+        ) as Box<_>;
 
         Ok((
             ModelBuffers {
@@ -219,33 +239,47 @@ fn load_material(
 }
 
 fn to_buffer_vec2<'a, T, V>(
-    device: Arc<vulkano::device::Device>,
+    queue: Arc<vulkano::device::Queue>,
     vec: &[T],
-) -> Arc<vulkano::buffer::BufferAccess + Send + Sync>
+) -> (
+    Arc<vulkano::buffer::BufferAccess + Send + Sync>,
+    Box<vulkano::sync::GpuFuture>,
+)
 where
     V: 'static + FromArr2<T> + Sync + Send,
     T: Copy,
 {
-    vulkano::buffer::CpuAccessibleBuffer::from_iter(
-        device,
-        vulkano::buffer::BufferUsage::all(),
+    let (buffer, future) = vulkano::buffer::ImmutableBuffer::from_iter(
         vec.chunks(2)
             .map(|chunk| V::from_arr2([chunk[0], chunk[1]])),
-    ).expect("failed to create indices buffer")
+        vulkano::buffer::BufferUsage {
+            storage_buffer: true,
+            ..vulkano::buffer::BufferUsage::none()
+        },
+        queue,
+    ).expect("failed to create indices buffer");
+    (buffer, Box::new(future))
 }
 
 fn to_buffer_vec3<'a, T, V>(
-    device: Arc<vulkano::device::Device>,
+    queue: Arc<vulkano::device::Queue>,
     vec: &[T],
-) -> Arc<vulkano::buffer::BufferAccess + Send + Sync>
+) -> (
+    Arc<vulkano::buffer::BufferAccess + Send + Sync>,
+    Box<vulkano::sync::GpuFuture>,
+)
 where
     V: 'static + FromArr3<T> + Sync + Send,
     T: Copy,
 {
-    vulkano::buffer::CpuAccessibleBuffer::from_iter(
-        device,
-        vulkano::buffer::BufferUsage::all(),
+    let (buffer, future) = vulkano::buffer::ImmutableBuffer::from_iter(
         vec.chunks(3)
             .map(|chunk| V::from_arr3([chunk[0], chunk[1], chunk[2]])),
-    ).expect("failed to create indices buffer")
+        vulkano::buffer::BufferUsage {
+            storage_buffer: true,
+            ..vulkano::buffer::BufferUsage::none()
+        },
+        queue,
+    ).expect("failed to create indices buffer");
+    (buffer, Box::new(future))
 }
