@@ -131,6 +131,9 @@ IntersectionResult intersect(in Ray ray, in uvec3 triangle)
   }
 
   float t = dot(v0v2, qvec) * invDet;
+  if (t < 0) {
+    return no_intersection();
+  }
 
   return intersection(vec2(u, v), t, triangle);
 }
@@ -174,7 +177,10 @@ vec3 trace(in Ray ray) {
   if (best.intersect) {
     vec3 wuv = vec3(1.0 - best.uv.x - best.uv.y, best.uv.x, best.uv.y);
     vec3 norm = point_norm(best.triangle, wuv);
-    float cosine_factor = -1.0 * dot(norm, ray.dir);
+    float cosine_factor = dot(norm, ray.dir);
+    if (cosine_factor < 0) {
+        cosine_factor *= -1.0;
+    }
     uint material_idx = models[hit_model_idx].material_idx;
     if (material_idx == -1) {
       return cosine_factor * vec3(1.0, 1.0, 1.0);
@@ -191,29 +197,25 @@ vec3 trace(in Ray ray) {
   return vec3(0.0, 0.0, 0.0);
 }
 
-Ray primary_ray(in vec2 uv) {
+Ray primary_ray(in vec2 uv, in float aspect_ratio) {
   vec3 dir = camera.view
              + camera.right * (2.0 * uv.x - 1.0)
              + camera.up  * (2.0 * uv.y - 1.0);
+  dir.x *= aspect_ratio;
+  dir.z *= aspect_ratio;
 
   Ray ray;
   ray.orig = camera.position;
   ray.dir = normalize(dir);
-  return ray;
 
-  /*
-  Ray ray;
-  ray.orig = camera.position;
-  ray.dir = normalize(vec3((-1.0 + 2.0 * uv) * vec2(aspect_ratio, 1.0), -1.0));
   return ray;
-  */
 }
 
 void main() {
-  ivec2 dim = imageSize(img);
+  vec2 dim = imageSize(img);
   vec2 uv = vec2(gl_GlobalInvocationID.xy) / dim;
   float aspect_ratio = dim.x / dim.y;
-  Ray ray = primary_ray(uv);
+  Ray ray = primary_ray(uv, aspect_ratio);
   vec3 color = trace(ray);
   imageStore(img, ivec2(gl_GlobalInvocationID.xy), vec4(color, 1.0));
 }
