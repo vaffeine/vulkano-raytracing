@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Vlad Alex <vlad.al.dp@gmail.com>"]
 
 [[bin]]
-name = "vulkano"
+name = "tracer"
 path = "src/main.rs"
 
 [dependencies]
@@ -18,3 +18,4 @@ time = "0.1"
 image = "0.18"
 tobj = "0.1"
 cgmath = "0.16"
+clap = "~2.27.0"

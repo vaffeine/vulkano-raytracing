@@ -12,6 +12,9 @@ extern crate vulkano_shader_derive;
 extern crate vulkano_text;
 extern crate vulkano_win;
 
+#[macro_use]
+extern crate clap;
+
 mod gl_types;
 mod graphics;
 mod tracer;
@@ -21,6 +24,7 @@ mod cs;
 mod scene;
 mod input;
 mod event_manager;
+mod args;
 
 use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
@@ -29,31 +33,10 @@ use graphics::GraphicsPart;
 use tracer::ComputePart;
 use fps_counter::FPSCounter;
 use event_manager::EventManager;
+use args::Args;
 
 use std::sync::Arc;
 use std::path::Path;
-
-#[cfg(debug_assertions)]
-fn message_types() -> vulkano::instance::debug::MessageTypes {
-    vulkano::instance::debug::MessageTypes {
-        error: true,
-        warning: true,
-        performance_warning: true,
-        information: true,
-        debug: true,
-    }
-}
-
-#[cfg(not(debug_assertions))]
-fn message_types() -> vulkano::instance::debug::MessageTypes {
-    vulkano::instance::debug::MessageTypes {
-        error: true,
-        warning: true,
-        performance_warning: true,
-        information: false,
-        debug: false,
-    }
-}
 
 fn get_layers<'a>(desired_layers: Vec<&'a str>) -> Vec<&'a str> {
     let available_layers: Vec<_> = vulkano::instance::layers_list().unwrap().collect();
@@ -73,9 +56,9 @@ fn print_message_callback(msg: &vulkano::instance::debug::Message) {
     } else if msg.ty.warning {
         "warning"
     } else if msg.ty.performance_warning {
-        "performance_warning"
+        "perf"
     } else if msg.ty.information {
-        "information"
+        "info"
     } else if msg.ty.debug {
         "debug"
     } else {
@@ -128,6 +111,7 @@ impl<'a> Vulkan<'a> {
 }
 
 fn main() {
+    let args = Args::get_matches();
     let extensions = vulkano::instance::InstanceExtensions {
         ext_debug_report: true,
         ..vulkano_win::required_extensions()
@@ -139,16 +123,14 @@ fn main() {
 
     let _debug_callback = vulkano::instance::debug::DebugCallback::new(
         &instance,
-        message_types(),
+        args.log_level,
         print_message_callback,
     ).ok();
 
     let mut events_loop = winit::EventsLoop::new();
-    let w_width = 600;
-    let w_height = 600;
     let window = winit::WindowBuilder::new()
-        .with_min_dimensions(w_width, w_height)
-        .with_max_dimensions(w_width, w_height)
+        .with_min_dimensions(args.resolution[0], args.resolution[1])
+        .with_max_dimensions(args.resolution[0], args.resolution[1])
         .build_vk_surface(&events_loop, instance.clone())
         .unwrap();
     window.window().set_cursor(winit::MouseCursor::NoneCursor);
@@ -161,14 +143,15 @@ fn main() {
         q.supports_graphics() && window.surface().is_supported(q).unwrap_or(false)
     });
 
-    let model_path = std::env::args().nth(1).expect("no model passed");
     let (scene_buffers, load_future) =
-        scene::ModelBuffers::from_obj(Path::new(&model_path), device.clone(), queue.clone())
+        scene::ModelBuffers::from_obj(Path::new(&args.model), device.clone(), queue.clone())
             .expect("failed to load model");
 
     let mut event_manager = EventManager::new();
-    let mut fps_counter = FPSCounter::new(fps_counter::Duration::milliseconds(100));
-    let mut camera = camera::Camera::new([40.0, 40.0]);
+    let mut fps_counter = FPSCounter::new(fps_counter::Duration::milliseconds(
+        args.fps_update_interval,
+    ));
+    let mut camera = camera::Camera::with_position(args.position, args.fov);
 
     let (mut graphics, quad_future) =
         GraphicsPart::new(device.clone(), &window, physical.clone(), queue.clone());
@@ -242,7 +225,10 @@ fn main() {
         );
 
         events_loop.poll_events(|ev| event_manager.process_event(ev));
-        camera.process_keyboard_input(&event_manager.keyboard, render_time as f32 / 1000.0);
+        camera.process_keyboard_input(
+            &event_manager.keyboard,
+            args.sensitivity * render_time as f32 / 1000.0,
+        );
         camera.process_mouse_input(event_manager.mouse.fetch_mouse_delta());
         graphics.recreate_swapchain = event_manager.recreate_swapchain();
         if event_manager.done() {

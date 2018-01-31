@@ -23,10 +23,6 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn new(fov: [f32; 2]) -> Camera {
-        Camera::with_position(cgmath::Vector3::new(0.0, 0.0, 3.0), fov)
-    }
-
     pub fn with_position(position: cgmath::Vector3<f32>, fov: [f32; 2]) -> Camera {
         const DEFAULT_YAW: f32 = 0.0;
         const DEFAULT_PITCH: f32 = 0.0;
