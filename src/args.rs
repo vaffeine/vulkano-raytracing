@@ -113,7 +113,7 @@ impl Args {
                     .possible_values(LOG_LEVELS)
                     .display_order(6)
                     .help(
-                        "Sets the sensitivity of the controls (camera movement) [default: perf]",
+                        "Sets the log messages amount [default: perf]",
                     ),
             )
             .get_matches();
