@@ -159,10 +159,7 @@ impl<'a> GraphicsPart<'a> {
         )
     }
 
-    pub fn recreate_swapchain(
-        &mut self,
-        window: &vulkano_win::Window,
-    ) -> bool {
+    pub fn recreate_swapchain(&mut self, window: &vulkano_win::Window) -> bool {
         if !self.recreate_swapchain {
             return false;
         }

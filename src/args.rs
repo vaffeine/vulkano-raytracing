@@ -12,6 +12,7 @@ pub struct Args {
     pub sensitivity: f32,
     pub fps_update_interval: i64,
     pub log_level: vulkano::instance::debug::MessageTypes,
+    pub benchmark: bool,
 }
 
 fn is_supported_model_format(val: String) -> Result<(), String> {
@@ -112,9 +113,13 @@ impl Args {
                     .takes_value(true)
                     .possible_values(LOG_LEVELS)
                     .display_order(6)
-                    .help(
-                        "Sets the log messages amount [default: perf]",
-                    ),
+                    .help("Sets the log messages amount [default: perf]"),
+            )
+            .arg(
+                clap::Arg::with_name("benchmark")
+                    .long("benchmark")
+                    .display_order(7)
+                    .help("Turn on benchmarking"),
             )
             .get_matches();
         let model = matches.value_of("model").unwrap().to_string();
@@ -152,6 +157,7 @@ impl Args {
         } else {
             vulkano::instance::debug::MessageTypes::errors_and_warnings()
         };
+        let benchmark = matches.is_present("benchmark");
         Args {
             model,
             resolution,
@@ -160,6 +166,7 @@ impl Args {
             sensitivity,
             fps_update_interval,
             log_level,
+            benchmark,
         }
     }
 }

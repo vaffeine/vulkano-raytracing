@@ -10,8 +10,15 @@ struct Camera {
   vec3 up;
 };
 
-layout (set = 0, binding = 1) uniform Constants {
+layout (set = 0, binding = 1) uniform Constants
+{
   Camera camera;
+};
+
+layout(set = 0, binding = 2) buffer Statistics
+{
+  uint triangle_tests;
+  uint triangle_intersections;
 };
 
 layout (std140, set = 1, binding = 0) buffer Positions
@@ -105,6 +112,8 @@ IntersectionResult no_intersection() {
 
 IntersectionResult intersect(in Ray ray, in uvec3 triangle)
 {
+  atomicAdd(triangle_tests, 1);
+
   const float kEpsilon = 1e-8;
   vec3 v0 = positions[triangle.x];
   vec3 v1 = positions[triangle.y];
@@ -135,6 +144,7 @@ IntersectionResult intersect(in Ray ray, in uvec3 triangle)
     return no_intersection();
   }
 
+  atomicAdd(triangle_intersections, 1);
   return intersection(vec2(u, v), t, triangle);
 }
 

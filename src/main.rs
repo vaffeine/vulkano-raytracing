@@ -25,6 +25,7 @@ mod scene;
 mod input;
 mod event_manager;
 mod args;
+mod statistics;
 
 use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
@@ -34,6 +35,7 @@ use tracer::ComputePart;
 use fps_counter::FPSCounter;
 use event_manager::EventManager;
 use args::Args;
+use statistics::Statistics;
 
 use std::sync::Arc;
 use std::path::Path;
@@ -155,13 +157,27 @@ fn main() {
 
     let (mut graphics, quad_future) =
         GraphicsPart::new(device.clone(), &window, physical.clone(), queue.clone());
+    let mut statistics = Statistics::new(
+        scene_buffers.triangle_count,
+        graphics.dimensions[0] * graphics.dimensions[1],
+    );
     let mut compute = ComputePart::new(device.clone(), scene_buffers).unwrap();
 
     let uniform_buffer =
         vulkano::buffer::CpuBufferPool::<cs::ty::Constants>::uniform_buffer(device.clone());
+    let statistics_buffer =
+        vulkano::buffer::CpuAccessibleBuffer::<cs::ty::Statistics>::from_data(
+            device.clone(),
+            vulkano::buffer::BufferUsage::all(),
+            cs::ty::Statistics {
+                triangle_intersections: 0,
+                triangle_tests: 0,
+            },
+        ).unwrap();
 
     let mut previous_frame_end =
         Box::new(load_future.join(quad_future)) as Box<vulkano::sync::GpuFuture>;
+
     loop {
         previous_frame_end.cleanup_finished();
         fps_counter.end_frame();
@@ -193,9 +209,16 @@ fn main() {
                 vulkano::command_buffer::AutoCommandBufferBuilder::primary_one_time_submit(
                     device.clone(),
                     queue.family(),
-                ).unwrap();
+                ).unwrap()
+                    .fill_buffer(statistics_buffer.clone(), 0)
+                    .unwrap();
 
-            cbb = compute.render(cbb, graphics.texture.clone(), uniform);
+            cbb = compute.render(
+                cbb,
+                graphics.texture.clone(),
+                uniform,
+                statistics_buffer.clone(),
+            );
             cbb = graphics.draw(cbb, image_num);
 
             cbb.build().unwrap()
@@ -208,7 +231,6 @@ fn main() {
             .then_swapchain_present(queue.clone(), graphics.swapchain.clone(), image_num)
             .then_signal_fence_and_flush()
             .unwrap();
-        previous_frame_end = Box::new(future) as Box<_>;
 
         let render_time = fps_counter.render_time();
         graphics.queue_text(
@@ -232,7 +254,18 @@ fn main() {
         camera.process_mouse_input(event_manager.mouse.fetch_mouse_delta());
         graphics.recreate_swapchain = event_manager.recreate_swapchain();
         if event_manager.done() {
-            return;
+            break;
         }
+        if args.benchmark {
+            future.wait(None).unwrap();
+            let last_statistics = statistics_buffer
+                .read()
+                .expect("failed to lock buffer for reading");
+            statistics.add_stats(&last_statistics, render_time);
+        }
+        previous_frame_end = Box::new(future) as Box<_>;
+    }
+    if args.benchmark {
+        println!("==========\nStatistics\n==========\n{}", statistics);
     }
 }

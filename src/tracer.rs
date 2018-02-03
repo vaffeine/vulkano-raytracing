@@ -75,13 +75,17 @@ impl ComputePart {
         builder: vulkano::command_buffer::AutoCommandBufferBuilder,
         texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
         uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync + 'static>,
+        statistics: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     ) -> vulkano::command_buffer::AutoCommandBufferBuilder {
         let dimensions = texture.dimensions();
         builder
             .dispatch(
                 [dimensions.width() / 16, dimensions.height() / 16, 1],
                 self.pipeline.clone(),
-                (self.next_set(texture, uniform), self.model_set.clone()),
+                (
+                    self.next_set(texture, uniform, statistics),
+                    self.model_set.clone(),
+                ),
                 (),
             )
             .unwrap()
@@ -91,6 +95,7 @@ impl ComputePart {
         &mut self,
         texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
         uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
+        statistics: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     ) -> Arc<vulkano::descriptor::descriptor_set::DescriptorSet + Send + Sync> {
         Arc::new(
             self.fsds_pool
@@ -98,6 +103,8 @@ impl ComputePart {
                 .add_image(texture)
                 .unwrap()
                 .add_buffer(uniform)
+                .unwrap()
+                .add_buffer(statistics)
                 .unwrap()
                 .build()
                 .unwrap(),

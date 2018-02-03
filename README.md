@@ -24,9 +24,10 @@ And you are done!
 [clap](https://clap.rs/) provides user with excelent help message:
 ```bash
 USAGE:
-    tracer [OPTIONS] <model>
+    tracer [FLAGS] [OPTIONS] <model>
 
 FLAGS:
+        --benchmark  Turn on benchmarking
     -h, --help       Prints help information
     -V, --version    Prints version information
 

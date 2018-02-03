@@ -19,6 +19,7 @@ pub struct ModelBuffers {
     pub texcoords: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     pub materials: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     pub textures: Vec<Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>>,
+    pub triangle_count: usize,
 }
 
 impl ModelBuffers {
@@ -32,7 +33,6 @@ impl ModelBuffers {
         let (models, positions, indices, normals, texcoords) = load_mesh(obj_models);
         let (materials, textures, textures_future) =
             load_materials(device.clone(), queue.clone(), obj_materials);
-        println!("Scene has {} faces", indices.len() / 3);
 
         let (buffer_models, models_future) = vulkano::buffer::ImmutableBuffer::from_iter(
             models.into_iter(),
@@ -78,6 +78,7 @@ impl ModelBuffers {
                 texcoords: buffer_texcoords,
                 materials: buffer_materials,
                 textures: textures,
+                triangle_count: indices.len() / 3,
             },
             future,
         ))
