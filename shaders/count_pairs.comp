@@ -1,0 +1,47 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Positions {
+    vec3 positions[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Indices {
+    uvec3 indices[];
+};
+
+layout(set = 1, binding = 0) readonly uniform Params {
+    vec3 min_cell;
+    vec3 cell_size;
+    uvec3 resolution;
+};
+
+layout(set = 1, binding = 1) writeonly buffer Cells {
+    uint cells[];
+};
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= indices.length()) {
+        return;
+    }
+
+    uvec3 triangle = indices[gid];
+    vec3 a = positions[triangle.x];
+    vec3 b = positions[triangle.y];
+    vec3 c = positions[triangle.z];
+
+    vec3 tri_min = min(a, min(b, c)) - min_cell;
+    vec3 tri_max = max(a, max(b, c)) - min_cell;
+
+    uvec3 min_cell = clamp(uvec3(tri_min / cell_size), uvec3(0), resolution - uvec3(1));
+    uvec3 max_cell = clamp(uvec3(tri_max / cell_size), uvec3(0), resolution - uvec3(1));
+
+    for (uint z = min_cell.z; z <= max_cell.z; ++z) {
+        for (uint y = min_cell.y; y <= max_cell.y; ++y) {
+            for (uint x = min_cell.x; x <= max_cell.x; ++x) {
+                atomicAdd(cells[x + resolution.x * (y + resolution.y * z)], 1);
+            }
+        }
+    }
+}

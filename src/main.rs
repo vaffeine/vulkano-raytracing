@@ -26,6 +26,7 @@ mod input;
 mod event_manager;
 mod args;
 mod statistics;
+mod grid;
 
 use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
@@ -161,7 +162,7 @@ fn main() {
         scene_buffers.triangle_count,
         graphics.dimensions[0] * graphics.dimensions[1],
     );
-    let mut compute = ComputePart::new(device.clone(), scene_buffers).unwrap();
+    let mut compute = ComputePart::new(device.clone(), &scene_buffers).unwrap();
 
     let uniform_buffer =
         vulkano::buffer::CpuBufferPool::<cs::ty::Constants>::uniform_buffer(device.clone());
@@ -175,6 +176,15 @@ fn main() {
             },
         ).unwrap();
 
+    // TODO remove me
+    let grid = grid::GridBuilder::new(
+        queue.clone(),
+        scene_buffers.positions.clone(),
+        scene_buffers.indices.clone(),
+        scene_buffers.triangle_count,
+    );
+    grid.build(load_future);
+    let load_future = vulkano::sync::now(device.clone());
     let mut previous_frame_end =
         Box::new(load_future.join(quad_future)) as Box<vulkano::sync::GpuFuture>;
 

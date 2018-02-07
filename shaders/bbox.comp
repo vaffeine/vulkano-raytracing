@@ -1,0 +1,61 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Positions {
+    vec3 positions[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer BBox {
+    vec3 minmax[];
+};
+
+shared vec3 s_minimum[gl_WorkGroupSize.x];
+shared vec3 s_maximum[gl_WorkGroupSize.x];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint gid = gl_WorkGroupID.x * gl_WorkGroupSize.x * 2 + tid;
+    if (gid < positions.length()) {
+        if (gid + gl_WorkGroupSize.x < positions.length()) {
+            s_maximum[tid] = max(positions[gid], positions[gid + gl_WorkGroupSize.x]);
+            s_minimum[tid] = min(positions[gid], positions[gid + gl_WorkGroupSize.x]);
+        } else {
+            s_maximum[tid] = positions[gid];
+            s_minimum[tid] = positions[gid];
+        }
+    } else {
+        s_maximum[tid] = vec3(-1.0e10);
+        s_minimum[tid] = vec3(1.0e10);
+    }
+    barrier();
+
+    for (uint s = gl_WorkGroupSize.x / 2; s > 32; s >>= 1) {
+        if (tid < s) {
+            s_maximum[tid] = max(s_maximum[tid], s_maximum[tid + s]);
+            s_minimum[tid] = min(s_minimum[tid], s_minimum[tid + s]);
+        }
+        barrier();
+    }
+
+    if (tid < 32) {
+        s_maximum[tid] = max(s_maximum[tid], s_maximum[tid + 32]);
+        s_maximum[tid] = max(s_maximum[tid], s_maximum[tid + 16]);
+        s_maximum[tid] = max(s_maximum[tid], s_maximum[tid + 8]);
+        s_maximum[tid] = max(s_maximum[tid], s_maximum[tid + 4]);
+        s_maximum[tid] = max(s_maximum[tid], s_maximum[tid + 2]);
+        s_maximum[tid] = max(s_maximum[tid], s_maximum[tid + 1]);
+
+        s_minimum[tid] = min(s_minimum[tid], s_minimum[tid + 32]);
+        s_minimum[tid] = min(s_minimum[tid], s_minimum[tid + 16]);
+        s_minimum[tid] = min(s_minimum[tid], s_minimum[tid + 8]);
+        s_minimum[tid] = min(s_minimum[tid], s_minimum[tid + 4]);
+        s_minimum[tid] = min(s_minimum[tid], s_minimum[tid + 2]);
+        s_minimum[tid] = min(s_minimum[tid], s_minimum[tid + 1]);
+    }
+
+    if (tid == 0) {
+        minmax[gl_WorkGroupID.x] = s_minimum[0];
+        minmax[gl_WorkGroupID.x + gl_NumWorkGroups.x] = s_maximum[0];
+    }
+}

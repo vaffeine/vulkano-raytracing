@@ -42,6 +42,7 @@ impl ModelBuffers {
             },
             queue.clone(),
         ).unwrap();
+
         let (buffer_positions, positions_future) =
             to_buffer_vec3::<f32, Vec3>(queue.clone(), &positions);
         let (buffer_indices, indices_future) =

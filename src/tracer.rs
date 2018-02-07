@@ -21,7 +21,7 @@ pub struct ComputePart {
 impl ComputePart {
     pub fn new(
         device: Arc<vulkano::device::Device>,
-        buffers: scene::ModelBuffers,
+        buffers: &scene::ModelBuffers,
     ) -> Result<ComputePart, descriptor_set::PersistentDescriptorSetError> {
         let shader = cs::Shader::load(device.clone()).expect("failed to create shader module");
         let pipeline = Arc::new(
