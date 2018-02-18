@@ -5,16 +5,20 @@ use std::sync::Arc;
 
 use cs;
 use scene;
+use grid::Grid;
+
+type TracerDescriptorSetsPool = descriptor_set::FixedSizeDescriptorSetsPool<
+    Arc<
+        vulkano::pipeline::ComputePipeline<
+            vulkano::descriptor::pipeline_layout::PipelineLayout<cs::Layout>,
+        >,
+    >,
+>;
 
 pub struct ComputePart {
     pipeline: Arc<vulkano::pipeline::ComputePipelineAbstract + Send + Sync>,
-    fsds_pool: descriptor_set::FixedSizeDescriptorSetsPool<
-        Arc<
-            vulkano::pipeline::ComputePipeline<
-                vulkano::descriptor::pipeline_layout::PipelineLayout<cs::Layout>,
-            >,
-        >,
-    >,
+    camera_ds_pool: TracerDescriptorSetsPool,
+    grid_ds_pool: TracerDescriptorSetsPool,
     model_set: Arc<vulkano::descriptor::DescriptorSet + Send + Sync>,
 }
 
@@ -31,7 +35,7 @@ impl ComputePart {
                 &(),
             ).expect("failed to create compute pipeline"),
         );
-        let fsds_pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 0);
+        let camera_ds_pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 0);
         let sampler = vulkano::sampler::Sampler::simple_repeat_linear(device.clone());
         let model_set = Arc::new(
             descriptor_set::PersistentDescriptorSet::start(pipeline.clone(), 1)
@@ -62,43 +66,71 @@ impl ComputePart {
                 .build()
                 .unwrap(),
         );
+        let grid_ds_pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 2);
 
         Ok(ComputePart {
-            pipeline: pipeline,
-            fsds_pool: fsds_pool,
-            model_set: model_set,
+            pipeline,
+            camera_ds_pool,
+            grid_ds_pool,
+            model_set,
         })
     }
 
     pub fn render(
         &mut self,
+        device: Arc<vulkano::device::Device>,
         builder: vulkano::command_buffer::AutoCommandBufferBuilder,
         texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
         uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync + 'static>,
         statistics: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
+        grid: &Grid,
     ) -> vulkano::command_buffer::AutoCommandBufferBuilder {
         let dimensions = texture.dimensions();
+        let params_buffer = vulkano::buffer::CpuAccessibleBuffer::<cs::ty::Grid>::from_data(
+            device.clone(),
+            vulkano::buffer::BufferUsage::uniform_buffer(),
+            cs::ty::Grid {
+                minimum_cell: grid.bbox.min.position,
+                maximum_cell: grid.bbox.max.position,
+                grid_resolution: grid.resolution,
+                cell_size: grid.cell_size,
+                _dummy0: [0; 4],
+                _dummy1: [0; 4],
+                _dummy2: [0; 4],
+            },
+        ).unwrap();
+        let grid_ds = self.grid_ds_pool
+            .next()
+            .add_buffer(params_buffer)
+            .unwrap()
+            .add_buffer(grid.cells_buffer.clone())
+            .unwrap()
+            .add_buffer(grid.references_buffer.clone())
+            .unwrap()
+            .build()
+            .unwrap();
         builder
             .dispatch(
                 [dimensions.width() / 16, dimensions.height() / 16, 1],
                 self.pipeline.clone(),
                 (
-                    self.next_set(texture, uniform, statistics),
+                    self.next_camera_set(texture, uniform, statistics),
                     self.model_set.clone(),
+                    grid_ds,
                 ),
                 (),
             )
             .unwrap()
     }
 
-    fn next_set(
+    fn next_camera_set(
         &mut self,
         texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
         uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
         statistics: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
     ) -> Arc<vulkano::descriptor::descriptor_set::DescriptorSet + Send + Sync> {
         Arc::new(
-            self.fsds_pool
+            self.camera_ds_pool
                 .next()
                 .add_image(texture)
                 .unwrap()

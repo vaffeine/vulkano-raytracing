@@ -2,18 +2,26 @@ extern crate vulkano;
 
 mod bbox;
 mod pair_counter;
-use self::bbox::BBoxFinder;
+mod pair_writer;
+use self::bbox::{BBox, BBoxFinder};
 use self::pair_counter::PairCounter;
-
-use gl_types::UVec2;
+use self::pair_writer::PairWriter;
 
 use std::sync::Arc;
-use std::iter;
+
+pub struct Grid {
+    pub bbox: BBox,
+    pub resolution: [u32; 3],
+    pub cell_size: [f32; 3],
+    pub cells_buffer: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
+    pub references_buffer: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
+}
 
 pub struct GridBuilder {
     queue: Arc<vulkano::device::Queue>,
     bbox_finder: BBoxFinder,
-    ref_counter: PairCounter,
+    pair_counter: PairCounter,
+    pair_writer: PairWriter,
     triangle_count: usize,
 }
 
@@ -25,21 +33,26 @@ impl GridBuilder {
         triangle_count: usize,
     ) -> GridBuilder {
         let bbox_finder = BBoxFinder::new(queue.clone(), positions.clone(), triangle_count);
-        let ref_counter = PairCounter::new(
+        let pair_counter = PairCounter::new(
             queue.clone(),
             positions.clone(),
             indices.clone(),
             triangle_count,
         );
+        let pair_writer = PairWriter::new(queue.clone(), triangle_count);
         GridBuilder {
             queue,
             bbox_finder,
-            ref_counter,
+            pair_counter,
+            pair_writer,
             triangle_count,
         }
     }
 
-    pub fn build(&self, future: Box<vulkano::sync::GpuFuture>) {
+    pub fn build(
+        &mut self,
+        future: Box<vulkano::sync::GpuFuture>,
+    ) -> (Grid, Box<vulkano::sync::GpuFuture>) {
         let bbox = self.bbox_finder.calculate_bbox(self.queue.clone(), future);
 
         let dx = bbox.max.position[0] - bbox.min.position[0];
@@ -54,18 +67,26 @@ impl GridBuilder {
             dz / resolution[2] as f32,
         ];
 
-        let (pair_count, cell_buffer, cell_future) = self.ref_counter.count_pairs(
+        let count_pairs_result = self.pair_counter.count_pairs(
             self.queue.clone(),
             bbox.min.position,
             cell_size,
             resolution,
         );
-        let pair_buffer = vulkano::buffer::DeviceLocalBuffer::<[UVec2]>::array(
-            self.queue.device().clone(),
-            pair_count as usize,
-            vulkano::buffer::BufferUsage::all(),
-            iter::once(self.queue.family()),
-        );
+        let (cells_buffer, references_buffer, future) =
+            self.pair_writer
+                .write_pairs(self.queue.clone(), count_pairs_result, resolution);
+
+        (
+            Grid {
+                bbox,
+                resolution,
+                cell_size,
+                cells_buffer,
+                references_buffer,
+            },
+            future,
+        )
     }
 }
 

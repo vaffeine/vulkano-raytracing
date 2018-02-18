@@ -75,6 +75,21 @@ layout (std140, set = 1, binding = 5) buffer Materials
 // Maximum number of 16, however, is supported by 97% of GPUs
 layout(set = 1, binding = 6) uniform sampler2D diffuse_textures[16];
 
+layout(set = 2, binding = 0) uniform Grid {
+  vec3 minimum_cell;
+  vec3 maximum_cell;
+  uvec3 grid_resolution;
+  vec3 cell_size;
+};
+
+layout(set = 2, binding = 1) buffer Cells {
+  uint cells[];
+};
+
+layout(set = 2, binding = 2) buffer References {
+  uint references[];
+};
+
 struct Ray {
   vec3 orig;
   vec3 dir;
@@ -83,15 +98,15 @@ struct Ray {
 struct IntersectionResult {
   vec2 uv;
   float time;
-  uvec3 triangle;
+  uint triangle_idx;
   bool intersect;
 };
 
-IntersectionResult intersection(in vec2 uv, in float time, in uvec3 triangle) {
+IntersectionResult intersection(in vec2 uv, in float time, in uint triangle_idx) {
   IntersectionResult result;
   result.uv = uv;
   result.time = time;
-  result.triangle = triangle;
+  result.triangle_idx = triangle_idx;
   result.intersect = true;
   return result;
 }
@@ -110,11 +125,42 @@ IntersectionResult no_intersection() {
   return result;
 }
 
-IntersectionResult intersect(in Ray ray, in uvec3 triangle)
+uvec3 is_negative(in vec3 vec) {
+  return uvec3(vec.x < 0.0 ? 1 : 0, vec.y < 0.0 ? 1 : 0, vec.z < 0.0 ? 1 : 0);
+}
+
+bool intersect_bbox(in Ray ray, in vec3 inv_dir, out float thit) {
+  vec3 bbox[2] = { minimum_cell, maximum_cell };
+
+  uvec3 dir_sign = is_negative(ray.dir);
+
+  vec3 tmin = (vec3(bbox[dir_sign.x].x, bbox[dir_sign.y].y,
+        bbox[dir_sign.z].z) - ray.orig) * inv_dir;
+  vec3 tmax = (vec3(bbox[1 - dir_sign.x].x, bbox[1 - dir_sign.y].y,
+        bbox[1 - dir_sign.z].z) - ray.orig) * inv_dir;
+
+  if (tmin.x > tmax.y || tmin.y > tmax.x) {
+    return false;
+  }
+
+  tmin.x = max(tmin.x, tmin.y);
+  tmax.x = min(tmax.x, tmax.y);
+
+  if (tmin.x > tmax.z || tmin.z > tmax.x) {
+    return false;
+  }
+
+  thit = max(tmin.x, tmin.z);
+
+  return true;
+}
+
+IntersectionResult intersect_triangle(in Ray ray, in uint triangle_idx)
 {
   atomicAdd(triangle_tests, 1);
 
   const float kEpsilon = 1e-8;
+  uvec3 triangle = indices[triangle_idx];
   vec3 v0 = positions[triangle.x];
   vec3 v1 = positions[triangle.y];
   vec3 v2 = positions[triangle.z];
@@ -145,18 +191,28 @@ IntersectionResult intersect(in Ray ray, in uvec3 triangle)
   }
 
   atomicAdd(triangle_intersections, 1);
-  return intersection(vec2(u, v), t, triangle);
+  return intersection(vec2(u, v), t, triangle_idx);
 }
 
-IntersectionResult intersect_model(in Ray ray, in Model model) {
-  IntersectionResult best = void_intersection();
-  for (uint i = model.indices_start; i < model.indices_end; ++i) {
-    IntersectionResult result = intersect(ray, indices[i]);
+IntersectionResult intersect_cell(in Ray ray, in uint cell_idx,
+                                  in IntersectionResult best) {
+  for (uint i = cells[cell_idx]; i < cells[cell_idx + 1]; ++i) {
+    uint triangle_idx = references[i];
+    IntersectionResult result = intersect_triangle(ray, triangle_idx);
     if (result.intersect && best.time > result.time) {
       best = result;
     }
   }
   return best;
+}
+
+uint get_axis(in vec3 next_t) {
+  const uint AXIS_MAP[8] = {2, 1, 2, 1, 2, 2, 0, 0};
+  uint k =
+    (uint(next_t.x < next_t.y) << 2) +
+    (uint(next_t.x < next_t.z) << 1) +
+    uint(next_t.y < next_t.z);
+  return AXIS_MAP[k];
 }
 
 vec2 point_st(in uvec3 triangle, in vec3 wuv) {
@@ -173,38 +229,90 @@ vec3 point_norm(in uvec3 triangle, in vec3 wuv) {
   return wuv.x * norm0 + wuv.y * norm1 + wuv.z * norm2;
 }
 
-vec3 trace(in Ray ray) {
-  IntersectionResult best = void_intersection();
-  uint hit_model_idx;
+vec3 get_color(in Ray ray, in IntersectionResult intersection, in uint model_idx) {
+  uvec3 triangle = indices[intersection.triangle_idx];
+  vec3 wuv = vec3(1.0 - intersection.uv.x - intersection.uv.y, intersection.uv.xy);
+  vec3 norm = point_norm(triangle, wuv);
+  float cosine_factor = dot(norm, ray.dir);
+  if (cosine_factor < 0) {
+    cosine_factor *= -1.0;
+  }
+  uint material_idx = models[model_idx].material_idx;
+  if (material_idx == -1) {
+    return cosine_factor * vec3(1.0);
+  }
+  Material material = materials[material_idx];
+  if (material.diffuse_texture_idx != -1) {
+    vec2 st = point_st(triangle, wuv);
+    return cosine_factor * texture(diffuse_textures[material.diffuse_texture_idx], st).rgb;
+  } else {
+    return cosine_factor * vec3(material.diffuse);
+  }
+}
+
+uint find_model(in uint triangle_idx) {
   for (uint i = 0; i < models.length(); ++i) {
-    IntersectionResult result = intersect_model(ray, models[i]);
-    if (result.intersect && best.time > result.time) {
-      best = result;
-      hit_model_idx = i;
+    Model model = models[i];
+    if (triangle_idx >= model.indices_start &&
+        triangle_idx < model.indices_end) {
+      return i;
     }
   }
+}
 
-  if (best.intersect) {
-    vec3 wuv = vec3(1.0 - best.uv.x - best.uv.y, best.uv.x, best.uv.y);
-    vec3 norm = point_norm(best.triangle, wuv);
-    float cosine_factor = dot(norm, ray.dir);
-    if (cosine_factor < 0) {
-        cosine_factor *= -1.0;
-    }
-    uint material_idx = models[hit_model_idx].material_idx;
-    if (material_idx == -1) {
-      return cosine_factor * vec3(1.0, 1.0, 1.0);
-    }
-    Material material = materials[material_idx];
-    if (material.diffuse_texture_idx != -1) {
-      vec2 st = point_st(best.triangle, wuv);
-      return cosine_factor * texture(diffuse_textures[material.diffuse_texture_idx], st).rgb;
+vec3 trace(in Ray ray) {
+  vec3 inv_dir = vec3(1.0) / ray.dir;
+  float t_hit_bbox;
+  if (!intersect_bbox(ray, inv_dir, t_hit_bbox)) {
+    return vec3(0.0);
+  }
+
+  vec3 ray_origin_cell = ray.orig + ray.dir * vec3(t_hit_bbox) - minimum_cell;
+  uvec3 current_cell = clamp(uvec3(ray_origin_cell / cell_size),
+                             uvec3(0), grid_resolution - uvec3(1));
+  vec3 delta_t;
+  vec3 next_t;
+  ivec3 next_step;
+  uvec3 exit;
+  for (uint i = 0; i < 3; ++i) {
+    if (ray.dir[i] < 0) {
+      delta_t[i] = -cell_size[i] * inv_dir[i];
+      next_t[i] = t_hit_bbox + (current_cell[i] * cell_size[i] -
+                  ray_origin_cell[i]) * inv_dir[i];
+      next_step[i] = -1;
+      exit[i] = -1;
     } else {
-      return cosine_factor * vec3(material.diffuse);
+      delta_t[i] = cell_size[i] * inv_dir[i];
+      next_t[i] = t_hit_bbox + ((current_cell[i] + 1) * cell_size[i] -
+                  ray_origin_cell[i]) * inv_dir[i];
+      next_step[i] = 1;
+      exit[i] = grid_resolution[i];
     }
   }
 
-  return vec3(0.0, 0.0, 0.0);
+  IntersectionResult best = void_intersection();
+  while (true) {
+    uint cell_idx = current_cell.x + grid_resolution.x *
+                    (current_cell.y + current_cell.z * grid_resolution.y);
+    best = intersect_cell(ray, cell_idx, best);
+
+    uint axis = get_axis(next_t);
+    if (best.time < next_t[axis]) {
+      break;
+    }
+    current_cell[axis] += next_step[axis];
+    if (current_cell[axis] == exit[axis]) {
+      break;
+    }
+    next_t[axis] += delta_t[axis];
+  }
+
+  uint hit_model_idx = find_model(best.triangle_idx);
+  if (best.intersect) {
+    return get_color(ray, best, hit_model_idx);
+  }
+
+  return vec3(0.0);
 }
 
 Ray primary_ray(in vec2 uv, in float aspect_ratio) {

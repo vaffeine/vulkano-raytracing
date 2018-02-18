@@ -164,7 +164,7 @@ fn main() {
     );
     let mut compute = ComputePart::new(device.clone(), &scene_buffers).unwrap();
 
-    let uniform_buffer =
+    let uniform_buffer_pool =
         vulkano::buffer::CpuBufferPool::<cs::ty::Constants>::uniform_buffer(device.clone());
     let statistics_buffer =
         vulkano::buffer::CpuAccessibleBuffer::<cs::ty::Statistics>::from_data(
@@ -176,17 +176,16 @@ fn main() {
             },
         ).unwrap();
 
-    // TODO remove me
-    let grid = grid::GridBuilder::new(
+    // TODO move me
+    let mut grid = grid::GridBuilder::new(
         queue.clone(),
         scene_buffers.positions.clone(),
         scene_buffers.indices.clone(),
         scene_buffers.triangle_count,
     );
-    grid.build(load_future);
-    let load_future = vulkano::sync::now(device.clone());
+    let (grid, grid_future) = grid.build(load_future);
     let mut previous_frame_end =
-        Box::new(load_future.join(quad_future)) as Box<vulkano::sync::GpuFuture>;
+        Box::new(grid_future.join(quad_future)) as Box<vulkano::sync::GpuFuture>;
 
     loop {
         previous_frame_end.cleanup_finished();
@@ -206,12 +205,12 @@ fn main() {
             Err(err) => panic!("{:?}", err),
         };
 
-        let uniform = Arc::new(
-            uniform_buffer
+        let uniform_buffer = Arc::new(
+            uniform_buffer_pool
                 .next(cs::ty::Constants {
                     camera: camera.gpu_camera::<cs::ty::Camera>(),
                 })
-                .expect("failed to create uniform buffer"),
+                .expect("failed to create uniform_buffer buffer"),
         );
 
         let cb = {
@@ -224,10 +223,12 @@ fn main() {
                     .unwrap();
 
             cbb = compute.render(
+                device.clone(),
                 cbb,
                 graphics.texture.clone(),
-                uniform,
+                uniform_buffer,
                 statistics_buffer.clone(),
+                &grid,
             );
             cbb = graphics.draw(cbb, image_num);
 

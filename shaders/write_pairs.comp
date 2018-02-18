@@ -1,0 +1,48 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly uniform Params {
+    uvec3 resolution;
+};
+
+layout(set = 0, binding = 1) readonly buffer MinCells {
+    uvec3 min_cells[];
+};
+
+layout(set = 0, binding = 2) readonly buffer MaxCells {
+    uvec3 max_cells[];
+};
+
+layout(set = 0, binding = 3) readonly buffer Cells {
+    uint cells[];
+};
+
+layout(set = 0, binding = 4) buffer CurrentCellIndices {
+    uint current_cell_idx[];
+};
+
+layout(set = 0, binding = 5) writeonly buffer References {
+    uint references[];
+};
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= min_cells.length()) {
+        return;
+    }
+
+    uvec3 min_cell = min_cells[gid];
+    uvec3 max_cell = max_cells[gid];
+
+    for (uint z = min_cell.z; z <= max_cell.z; ++z) {
+        for (uint y = min_cell.y; y <= max_cell.y; ++y) {
+            for (uint x = min_cell.x; x <= max_cell.x; ++x) {
+                uint cell_idx = x + resolution.x * (y + resolution.y * z);
+                uint rel_idx = atomicAdd(current_cell_idx[cell_idx], 1);
+                uint global_idx = cells[cell_idx] + rel_idx;
+                references[global_idx] = gid;
+            }
+        }
+    }
+}

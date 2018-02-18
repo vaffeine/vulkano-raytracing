@@ -20,6 +20,14 @@ layout(set = 1, binding = 1) writeonly buffer Cells {
     uint cells[];
 };
 
+layout(set = 1, binding = 2) writeonly buffer MinCells {
+    uvec3 min_cells[];
+};
+
+layout(set = 1, binding = 3) writeonly buffer MaxCells {
+    uvec3 max_cells[];
+};
+
 void main() {
     uint gid = gl_GlobalInvocationID.x;
     if (gid >= indices.length()) {
@@ -36,6 +44,8 @@ void main() {
 
     uvec3 min_cell = clamp(uvec3(tri_min / cell_size), uvec3(0), resolution - uvec3(1));
     uvec3 max_cell = clamp(uvec3(tri_max / cell_size), uvec3(0), resolution - uvec3(1));
+    min_cells[gid] = min_cell;
+    max_cells[gid] = max_cell;
 
     for (uint z = min_cell.z; z <= max_cell.z; ++z) {
         for (uint y = min_cell.y; y <= max_cell.y; ++y) {
