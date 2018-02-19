@@ -32,7 +32,7 @@ use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
 
 use graphics::GraphicsPart;
-use tracer::ComputePart;
+use tracer::Tracer;
 use fps_counter::FPSCounter;
 use event_manager::EventManager;
 use args::Args;
@@ -162,10 +162,8 @@ fn main() {
         scene_buffers.triangle_count,
         graphics.dimensions[0] * graphics.dimensions[1],
     );
-    let mut compute = ComputePart::new(device.clone(), &scene_buffers).unwrap();
+    let mut tracer = Tracer::new(device.clone(), &scene_buffers).unwrap();
 
-    let uniform_buffer_pool =
-        vulkano::buffer::CpuBufferPool::<cs::ty::Constants>::uniform_buffer(device.clone());
     let statistics_buffer =
         vulkano::buffer::CpuAccessibleBuffer::<cs::ty::Statistics>::from_data(
             device.clone(),
@@ -205,14 +203,6 @@ fn main() {
             Err(err) => panic!("{:?}", err),
         };
 
-        let uniform_buffer = Arc::new(
-            uniform_buffer_pool
-                .next(cs::ty::Constants {
-                    camera: camera.gpu_camera::<cs::ty::Camera>(),
-                })
-                .expect("failed to create uniform_buffer buffer"),
-        );
-
         let cb = {
             let mut cbb =
                 vulkano::command_buffer::AutoCommandBufferBuilder::primary_one_time_submit(
@@ -222,12 +212,11 @@ fn main() {
                     .fill_buffer(statistics_buffer.clone(), 0)
                     .unwrap();
 
-            cbb = compute.render(
-                device.clone(),
+            cbb = tracer.render(
                 cbb,
                 graphics.texture.clone(),
-                uniform_buffer,
                 statistics_buffer.clone(),
+                &camera,
                 &grid,
             );
             cbb = graphics.draw(cbb, image_num);

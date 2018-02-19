@@ -34,17 +34,18 @@ impl Camera {
             pitch: DEFAULT_PITCH,
         }
     }
-    pub fn gpu_camera<C: GPUCamera>(&self) -> C {
+    pub fn position(&self) -> [f32; 3] {
+        self.position.into()
+    }
+    pub fn view(&self) -> [f32; 3] {
+        self.view_dir.into()
+    }
+    pub fn axises(&self) -> ([f32; 3], [f32; 3]) {
         let horiz_axis = self.view_dir.cross(UP).normalize();
         let vert_axis = horiz_axis.cross(self.view_dir).normalize();
         let right = horiz_axis * scale(self.fov[0]);
         let up = vert_axis * scale(-self.fov[1]);
-        GPUCamera::new(
-            self.position.into(),
-            self.view_dir.into(),
-            up.into(),
-            right.into(),
-        )
+        (up.into(), right.into())
     }
     pub fn process_keyboard_input(&mut self, keyboard: &input::Keyboard, delta_seconds: f32) {
         const SPEED: f32 = 2.5;
@@ -101,10 +102,6 @@ impl fmt::Display for Camera {
             self.position.x, self.position.y, self.position.z, self.yaw, self.pitch
         )
     }
-}
-
-pub trait GPUCamera {
-    fn new(position: [f32; 3], view: [f32; 3], up: [f32; 3], right: [f32; 3]) -> Self;
 }
 
 fn view_direction(yaw: f32, pitch: f32) -> cgmath::Vector3<f32> {

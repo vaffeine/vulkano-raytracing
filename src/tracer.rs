@@ -6,6 +6,7 @@ use std::sync::Arc;
 use cs;
 use scene;
 use grid::Grid;
+use camera::Camera;
 
 type TracerDescriptorSetsPool = descriptor_set::FixedSizeDescriptorSetsPool<
     Arc<
@@ -15,18 +16,18 @@ type TracerDescriptorSetsPool = descriptor_set::FixedSizeDescriptorSetsPool<
     >,
 >;
 
-pub struct ComputePart {
+pub struct Tracer {
     pipeline: Arc<vulkano::pipeline::ComputePipelineAbstract + Send + Sync>,
-    camera_ds_pool: TracerDescriptorSetsPool,
-    grid_ds_pool: TracerDescriptorSetsPool,
+    uniform_buffer_pool: vulkano::buffer::CpuBufferPool<cs::ty::Uniform>,
+    ds_pool: TracerDescriptorSetsPool,
     model_set: Arc<vulkano::descriptor::DescriptorSet + Send + Sync>,
 }
 
-impl ComputePart {
+impl Tracer {
     pub fn new(
         device: Arc<vulkano::device::Device>,
         buffers: &scene::ModelBuffers,
-    ) -> Result<ComputePart, descriptor_set::PersistentDescriptorSetError> {
+    ) -> Result<Tracer, descriptor_set::PersistentDescriptorSetError> {
         let shader = cs::Shader::load(device.clone()).expect("failed to create shader module");
         let pipeline = Arc::new(
             vulkano::pipeline::ComputePipeline::new(
@@ -35,7 +36,8 @@ impl ComputePart {
                 &(),
             ).expect("failed to create compute pipeline"),
         );
-        let camera_ds_pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 0);
+        let uniform_buffer_pool = vulkano::buffer::CpuBufferPool::uniform_buffer(device.clone());
+        let ds_pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 0);
         let sampler = vulkano::sampler::Sampler::simple_repeat_linear(device.clone());
         let model_set = Arc::new(
             descriptor_set::PersistentDescriptorSet::start(pipeline.clone(), 1)
@@ -66,42 +68,34 @@ impl ComputePart {
                 .build()
                 .unwrap(),
         );
-        let grid_ds_pool = descriptor_set::FixedSizeDescriptorSetsPool::new(pipeline.clone(), 2);
 
-        Ok(ComputePart {
+        Ok(Tracer {
             pipeline,
-            camera_ds_pool,
-            grid_ds_pool,
+            uniform_buffer_pool,
+            ds_pool,
             model_set,
         })
     }
 
     pub fn render(
         &mut self,
-        device: Arc<vulkano::device::Device>,
         builder: vulkano::command_buffer::AutoCommandBufferBuilder,
         texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
-        uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync + 'static>,
         statistics: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
+        camera: &Camera,
         grid: &Grid,
     ) -> vulkano::command_buffer::AutoCommandBufferBuilder {
         let dimensions = texture.dimensions();
-        let params_buffer = vulkano::buffer::CpuAccessibleBuffer::<cs::ty::Grid>::from_data(
-            device.clone(),
-            vulkano::buffer::BufferUsage::uniform_buffer(),
-            cs::ty::Grid {
-                minimum_cell: grid.bbox.min.position,
-                maximum_cell: grid.bbox.max.position,
-                grid_resolution: grid.resolution,
-                cell_size: grid.cell_size,
-                _dummy0: [0; 4],
-                _dummy1: [0; 4],
-                _dummy2: [0; 4],
-            },
-        ).unwrap();
-        let grid_ds = self.grid_ds_pool
+        let uniform_buffer = self.uniform_buffer_pool
+            .next(cs::ty::Uniform::new(&camera, &grid))
+            .expect("failed to create uniform buffer");
+        let ds = self.ds_pool
             .next()
-            .add_buffer(params_buffer)
+            .add_image(texture)
+            .unwrap()
+            .add_buffer(uniform_buffer)
+            .unwrap()
+            .add_buffer(statistics)
             .unwrap()
             .add_buffer(grid.cells_buffer.clone())
             .unwrap()
@@ -113,33 +107,9 @@ impl ComputePart {
             .dispatch(
                 [dimensions.width() / 16, dimensions.height() / 16, 1],
                 self.pipeline.clone(),
-                (
-                    self.next_camera_set(texture, uniform, statistics),
-                    self.model_set.clone(),
-                    grid_ds,
-                ),
+                (ds, self.model_set.clone()),
                 (),
             )
             .unwrap()
-    }
-
-    fn next_camera_set(
-        &mut self,
-        texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
-        uniform: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
-        statistics: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
-    ) -> Arc<vulkano::descriptor::descriptor_set::DescriptorSet + Send + Sync> {
-        Arc::new(
-            self.camera_ds_pool
-                .next()
-                .add_image(texture)
-                .unwrap()
-                .add_buffer(uniform)
-                .unwrap()
-                .add_buffer(statistics)
-                .unwrap()
-                .build()
-                .unwrap(),
-        )
     }
 }
