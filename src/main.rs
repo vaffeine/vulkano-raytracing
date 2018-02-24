@@ -4,6 +4,7 @@
 extern crate cgmath;
 extern crate tobj;
 extern crate winit;
+extern crate time;
 
 #[macro_use]
 extern crate vulkano;
@@ -25,7 +26,6 @@ mod scene;
 mod input;
 mod event_manager;
 mod args;
-mod statistics;
 mod grid;
 
 use vulkano::sync::GpuFuture;
@@ -36,7 +36,6 @@ use tracer::Tracer;
 use fps_counter::FPSCounter;
 use event_manager::EventManager;
 use args::Args;
-use statistics::Statistics;
 
 use std::sync::Arc;
 use std::path::Path;
@@ -151,17 +150,10 @@ fn main() {
             .expect("failed to load model");
 
     let mut event_manager = EventManager::new();
-    let mut fps_counter = FPSCounter::new(fps_counter::Duration::milliseconds(
-        args.fps_update_interval,
-    ));
     let mut camera = camera::Camera::with_position(args.position, args.fov);
 
     let (mut graphics, quad_future) =
         GraphicsPart::new(device.clone(), &window, physical.clone(), queue.clone());
-    let mut statistics = Statistics::new(
-        scene_buffers.triangle_count,
-        graphics.dimensions[0] * graphics.dimensions[1],
-    );
     let mut tracer = Tracer::new(device.clone(), &scene_buffers).unwrap();
 
     let statistics_buffer =
@@ -171,20 +163,33 @@ fn main() {
             cs::ty::Statistics {
                 triangle_intersections: 0,
                 triangle_tests: 0,
+                cell_intersections: 0,
             },
         ).unwrap();
 
     // TODO move me
-    let mut grid = grid::GridBuilder::new(
+    let mut grid_builder = grid::GridBuilder::new(
         queue.clone(),
         scene_buffers.positions.clone(),
         scene_buffers.indices.clone(),
         scene_buffers.triangle_count,
     );
-    let (grid, grid_future) = grid.build(load_future);
+    let ((grid, grid_future), grid_build_time) = if args.benchmark {
+        std::mem::drop(load_future);
+        let start = time::PreciseTime::now();
+        let (grid, future) = grid_builder.build(Box::new(vulkano::sync::now(device.clone())));
+        std::mem::drop(future);
+        let elapsed = start.to(time::PreciseTime::now()).num_milliseconds();
+        ((grid, Box::new(vulkano::sync::now(device.clone())) as Box<_>), elapsed)
+    } else {
+        (grid_builder.build(load_future), 0)
+    };
     let mut previous_frame_end =
         Box::new(grid_future.join(quad_future)) as Box<vulkano::sync::GpuFuture>;
 
+    let mut fps_counter = FPSCounter::new(fps_counter::Duration::milliseconds(
+        args.fps_update_interval,
+    ));
     loop {
         previous_frame_end.cleanup_finished();
         fps_counter.end_frame();
@@ -232,7 +237,6 @@ fn main() {
             .then_signal_fence_and_flush()
             .unwrap();
 
-        let render_time = fps_counter.render_time();
         graphics.queue_text(
             10.0,
             20.0,
@@ -240,7 +244,7 @@ fn main() {
             &format!(
                 "Using device: {}\nRender time: {} ms ({} FPS)\nCamera: {}",
                 physical.name(),
-                render_time,
+                fps_counter.average_render_time(),
                 fps_counter.current_fps(),
                 camera
             ),
@@ -249,7 +253,7 @@ fn main() {
         events_loop.poll_events(|ev| event_manager.process_event(ev));
         camera.process_keyboard_input(
             &event_manager.keyboard,
-            args.sensitivity * render_time as f32 / 1000.0,
+            args.sensitivity * fps_counter.average_render_time() as f32 / 1000.0,
         );
         camera.process_mouse_input(event_manager.mouse.fetch_mouse_delta());
         graphics.recreate_swapchain = event_manager.recreate_swapchain();
@@ -258,14 +262,47 @@ fn main() {
         }
         if args.benchmark {
             future.wait(None).unwrap();
-            let last_statistics = statistics_buffer
+            let render_time = fps_counter.render_time();
+            let statistics = statistics_buffer
                 .read()
                 .expect("failed to lock buffer for reading");
-            statistics.add_stats(&last_statistics, render_time);
+            let primary_rays = graphics.dimensions[0] * graphics.dimensions[1];
+            println!("=============== Statistics ===============");
+            println!("\n>>> General");
+            println!("\trender time: {} ms ({} FPS)", render_time, 1000 / render_time);
+            println!("\ttriangles: {}", scene_buffers.triangle_count);
+            println!("\tprimary rays: {}", primary_rays);
+            println!("\n>>> Triangle");
+            println!("\ttests: {}", statistics.triangle_tests);
+            println!(
+                "\tintersections: {}",
+                statistics.triangle_intersections
+            );
+            println!(
+                "\ttests per ray: {}",
+                statistics.triangle_tests as f32 / primary_rays as f32
+            );
+            println!(
+                "\ttests per triangle: {}",
+                statistics.triangle_tests as f32 / scene_buffers.triangle_count as f32
+            );
+            println!("\n>>> Grid");
+            println!("\tbuild time: {} ms", grid_build_time);
+            let grid_size = [
+                grid.bbox.max.position[0] - grid.bbox.min.position[0],
+                grid.bbox.max.position[1] - grid.bbox.min.position[1],
+                grid.bbox.max.position[2] - grid.bbox.min.position[2],
+            ];
+            println!("\tsize: {:?}", grid_size);
+            println!("\tresolution: {:?}", grid.resolution);
+            let cell_count = grid.resolution[0] * grid.resolution[1] * grid.resolution[2];
+            println!("\tcell count: {}", cell_count);
+            println!("\tcell size: {:?}", grid.cell_size);
+            println!("\tcell intersections: {}", statistics.cell_intersections);
+            println!("\tintersections per ray: {}", statistics.cell_intersections as f32 / primary_rays as f32);
+            println!("\tintersections per cell: {}", statistics.cell_intersections as f32 / cell_count as f32);
+            break;
         }
         previous_frame_end = Box::new(future) as Box<_>;
-    }
-    if args.benchmark {
-        println!("==========\nStatistics\n==========\n{}", statistics);
     }
 }

@@ -33,7 +33,10 @@ impl FPSCounter {
     pub fn current_fps(&self) -> i64 {
         self.last_fps
     }
-    pub fn render_time(&self) -> i64 {
+    pub fn average_render_time(&self) -> i64 {
         self.render_time
+    }
+    pub fn render_time(&self) -> i64 {
+        self.updated_at.to(time::PreciseTime::now()).num_milliseconds()
     }
 }

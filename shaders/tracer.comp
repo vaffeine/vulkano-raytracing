@@ -25,6 +25,7 @@ layout (set = 0, binding = 1) uniform Uniform
 
 layout(set = 0, binding = 2) buffer Statistics
 {
+  uint cell_intersections;
   uint triangle_tests;
   uint triangle_intersections;
 };
@@ -36,7 +37,6 @@ layout(set = 0, binding = 3) buffer Cells {
 layout(set = 0, binding = 4) buffer References {
   uint references[];
 };
-
 
 layout (std140, set = 1, binding = 0) buffer Positions
 {
@@ -198,6 +198,7 @@ IntersectionResult intersect_triangle(in Ray ray, in uint triangle_idx)
 
 IntersectionResult intersect_cell(in Ray ray, in uint cell_idx,
                                   in IntersectionResult best) {
+  atomicAdd(cell_intersections, 1);
   for (uint i = cells[cell_idx]; i < cells[cell_idx + 1]; ++i) {
     uint triangle_idx = references[i];
     IntersectionResult result = intersect_triangle(ray, triangle_idx);
