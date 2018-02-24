@@ -15,6 +15,9 @@ extern crate vulkano_win;
 
 #[macro_use]
 extern crate clap;
+extern crate regex;
+#[macro_use]
+extern crate lazy_static;
 
 mod gl_types;
 mod graphics;
@@ -53,6 +56,15 @@ fn get_layers<'a>(desired_layers: Vec<&'a str>) -> Vec<&'a str> {
 }
 
 fn print_message_callback(msg: &vulkano::instance::debug::Message) {
+    lazy_static! {
+        // Validation layers spams this error message, although this error is false positive
+        // https://github.com/vulkano-rs/vulkano/issues/831
+        static ref FENCE_ERROR_RE: regex::Regex = regex::Regex::new(r"Fence 0x\w* is in use.").unwrap();
+    }
+    if FENCE_ERROR_RE.is_match(msg.description) {
+        return;
+    }
+
     let ty = if msg.ty.error {
         "error"
     } else if msg.ty.warning {

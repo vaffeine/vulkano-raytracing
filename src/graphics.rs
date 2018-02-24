@@ -68,8 +68,8 @@ impl<'a> GraphicsPart<'a> {
             single_pass_renderpass!(device.clone(),
             attachments: {
                 color: {
-                    load: DontCare,
-                    store: DontCare,
+                    load: Clear,
+                    store: Store,
                     format: swapchain.format(),
                     samples: 1,
                 }
