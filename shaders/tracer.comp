@@ -17,14 +17,12 @@ struct Grid {
   uvec3 resolution;
 };
 
-layout (set = 0, binding = 1) uniform Uniform
-{
+layout (set = 0, binding = 1) uniform Uniform {
   Camera camera;
   Grid grid;
 };
 
-layout(set = 0, binding = 2) buffer Statistics
-{
+layout(set = 0, binding = 2) buffer Statistics {
   uint cell_intersections;
   uint triangle_tests;
   uint triangle_intersections;
@@ -38,23 +36,19 @@ layout(set = 0, binding = 4) buffer References {
   uint references[];
 };
 
-layout (std140, set = 1, binding = 0) buffer Positions
-{
+layout (std140, set = 1, binding = 0) buffer Positions {
   vec3 positions[];
 };
 
-layout (std140, set = 1, binding = 1) buffer Indices
-{
+layout (std140, set = 1, binding = 1) buffer Indices {
   uvec3 indices[];
 };
 
-layout (std140, set = 1, binding = 2) buffer Noramls
-{
+layout (std140, set = 1, binding = 2) buffer Noramls {
   vec3 normals[];
 };
 
-layout (std140, set = 1, binding = 3) buffer TexCoords
-{
+layout (std140, set = 1, binding = 3) buffer TexCoords {
   vec2 texcoords[];
 };
 
@@ -64,8 +58,7 @@ struct Model {
   int material_idx;
 };
 
-layout (std140, set = 1, binding = 4) buffer Models
-{
+layout (std140, set = 1, binding = 4) buffer Models {
   Model models[];
 };
 
@@ -83,8 +76,7 @@ struct Material {
   int disolve_texture_idx;
 };
 
-layout (std140, set = 1, binding = 5) buffer Materials
-{
+layout (std140, set = 1, binding = 5) buffer Materials {
   Material materials[];
 };
 
@@ -104,38 +96,17 @@ struct IntersectionResult {
   bool intersect;
 };
 
-IntersectionResult intersection(in vec2 uv, in float time, in uint triangle_idx) {
-  IntersectionResult result;
-  result.uv = uv;
-  result.time = time;
-  result.triangle_idx = triangle_idx;
-  result.intersect = true;
-  return result;
-}
-
 IntersectionResult void_intersection() {
   IntersectionResult result;
   result.time = 1e20;
-  result.uv = vec2(0.0);
   result.intersect = false;
   return result;
-}
-
-IntersectionResult no_intersection() {
-  IntersectionResult result;
-  result.intersect = false;
-  return result;
-}
-
-uvec3 is_negative(in vec3 vec) {
-  return uvec3(vec.x < 0.0 ? 1 : 0, vec.y < 0.0 ? 1 : 0, vec.z < 0.0 ? 1 : 0);
 }
 
 bool intersect_bbox(in Ray ray, in vec3 inv_dir, out float thit) {
   vec3 bbox[2] = { grid.minimum_cell, grid.maximum_cell };
 
-  uvec3 dir_sign = is_negative(ray.dir);
-
+  uvec3 dir_sign = uvec3(lessThan(ray.dir, vec3(0.0)));
   vec3 tmin = (vec3(bbox[dir_sign.x].x, bbox[dir_sign.y].y,
         bbox[dir_sign.z].z) - ray.orig) * inv_dir;
   vec3 tmax = (vec3(bbox[1 - dir_sign.x].x, bbox[1 - dir_sign.y].y,
@@ -157,52 +128,61 @@ bool intersect_bbox(in Ray ray, in vec3 inv_dir, out float thit) {
   return true;
 }
 
-IntersectionResult intersect_triangle(in Ray ray, in uint triangle_idx)
-{
+bool intersect_triangle(in Ray ray, in uint triangle_idx,
+                        out IntersectionResult intersection) {
   atomicAdd(triangle_tests, 1);
 
-  const float kEpsilon = 1e-8;
+  const float EPSILON = 1e-8;
+
   uvec3 triangle = indices[triangle_idx];
   vec3 v0 = positions[triangle.x];
   vec3 v1 = positions[triangle.y];
   vec3 v2 = positions[triangle.z];
+
   vec3 v0v1 = v1 - v0;
   vec3 v0v2 = v2 - v0;
   vec3 pvec = cross(ray.dir, v0v2);
   float det = dot(v0v1, pvec);
-  if (abs(det) < kEpsilon) {
-    return no_intersection();
+  if (abs(det) < EPSILON) {
+    return false;
   }
-  float invDet = 1.0 / det;
 
+  float invDet = 1.0 / det;
   vec3 tvec = ray.orig - v0;
   float u = dot(tvec, pvec) * invDet;
   if (u < 0.0 || u > 1.0) {
-    return no_intersection();
+    return false;
   }
 
   vec3 qvec = cross(tvec, v0v1);
   float v = dot(ray.dir, qvec) * invDet;
   if (v < 0.0 || u + v > 1.0) {
-    return no_intersection();
+    return false;
   }
 
   float t = dot(v0v2, qvec) * invDet;
   if (t < 0) {
-    return no_intersection();
+    return false;
   }
 
   atomicAdd(triangle_intersections, 1);
-  return intersection(vec2(u, v), t, triangle_idx);
+  intersection = IntersectionResult(
+    vec2(u, v),
+    t,
+    triangle_idx,
+    true
+  );
+  return true;
 }
 
 IntersectionResult intersect_cell(in Ray ray, in uint cell_idx,
                                   in IntersectionResult best) {
   atomicAdd(cell_intersections, 1);
+  IntersectionResult result;
   for (uint i = cells[cell_idx]; i < cells[cell_idx + 1]; ++i) {
     uint triangle_idx = references[i];
-    IntersectionResult result = intersect_triangle(ray, triangle_idx);
-    if (result.intersect && best.time > result.time) {
+    if (intersect_triangle(ray, triangle_idx, result)
+          && best.time > result.time) {
       best = result;
     }
   }
@@ -214,7 +194,7 @@ uint get_axis(in vec3 next_t) {
   uint k =
     (uint(next_t.x < next_t.y) << 2) +
     (uint(next_t.x < next_t.z) << 1) +
-    uint(next_t.y < next_t.z);
+     uint(next_t.y < next_t.z);
   return AXIS_MAP[k];
 }
 
@@ -232,7 +212,17 @@ vec3 point_norm(in uvec3 triangle, in vec3 wuv) {
   return wuv.x * norm0 + wuv.y * norm1 + wuv.z * norm2;
 }
 
-vec3 get_color(in Ray ray, in IntersectionResult intersection, in uint model_idx) {
+uint find_model(in uint triangle_idx) {
+  for (uint i = 0; i < models.length(); ++i) {
+    Model model = models[i];
+    if (triangle_idx >= model.indices_start &&
+        triangle_idx < model.indices_end) {
+      return i;
+    }
+  }
+}
+
+vec3 get_color(in Ray ray, in IntersectionResult intersection) {
   uvec3 triangle = indices[intersection.triangle_idx];
   vec3 wuv = vec3(1.0 - intersection.uv.x - intersection.uv.y, intersection.uv.xy);
   vec3 norm = point_norm(triangle, wuv);
@@ -240,6 +230,8 @@ vec3 get_color(in Ray ray, in IntersectionResult intersection, in uint model_idx
   if (cosine_factor < 0) {
     cosine_factor *= -1.0;
   }
+
+  uint model_idx = find_model(intersection.triangle_idx);
   uint material_idx = models[model_idx].material_idx;
   if (material_idx == -1) {
     return cosine_factor * vec3(1.0);
@@ -253,45 +245,18 @@ vec3 get_color(in Ray ray, in IntersectionResult intersection, in uint model_idx
   }
 }
 
-uint find_model(in uint triangle_idx) {
-  for (uint i = 0; i < models.length(); ++i) {
-    Model model = models[i];
-    if (triangle_idx >= model.indices_start &&
-        triangle_idx < model.indices_end) {
-      return i;
-    }
-  }
-}
-
-vec3 trace(in Ray ray) {
-  vec3 inv_dir = vec3(1.0) / ray.dir;
-  float t_hit_bbox;
-  if (!intersect_bbox(ray, inv_dir, t_hit_bbox)) {
-    return vec3(0.0);
-  }
-
+IntersectionResult intersect_grid(in Ray ray, in vec3 inv_dir, in float t_hit_bbox) {
   vec3 ray_origin_cell = ray.orig + ray.dir * vec3(t_hit_bbox) - grid.minimum_cell;
   uvec3 current_cell = clamp(uvec3(ray_origin_cell / grid.cell_size),
                              uvec3(0), grid.resolution - uvec3(1));
-  vec3 delta_t;
-  vec3 next_t;
-  ivec3 next_step;
-  uvec3 exit;
-  for (uint i = 0; i < 3; ++i) {
-    if (ray.dir[i] < 0) {
-      delta_t[i] = -grid.cell_size[i] * inv_dir[i];
-      next_t[i] = t_hit_bbox + (current_cell[i] * grid.cell_size[i] -
-                  ray_origin_cell[i]) * inv_dir[i];
-      next_step[i] = -1;
-      exit[i] = -1;
-    } else {
-      delta_t[i] = grid.cell_size[i] * inv_dir[i];
-      next_t[i] = t_hit_bbox + ((current_cell[i] + 1) * grid.cell_size[i] -
-                  ray_origin_cell[i]) * inv_dir[i];
-      next_step[i] = 1;
-      exit[i] = grid.resolution[i];
-    }
-  }
+
+  vec3 dir_sign = sign(ray.dir);
+  vec3 delta_t = dir_sign * grid.cell_size * inv_dir;
+  ivec3 next_step = ivec3(dir_sign);
+  vec3 next_t = vec3(t_hit_bbox) +
+      ((current_cell + step(0.0, ray.dir)) * grid.cell_size - ray_origin_cell) *
+      inv_dir;
+  uvec3 exit = mix(grid.resolution, uvec3(-1), lessThan(ray.dir, vec3(0.0)));
 
   IntersectionResult best = void_intersection();
   while (true) {
@@ -310,20 +275,24 @@ vec3 trace(in Ray ray) {
     next_t[axis] += delta_t[axis];
   }
 
-  uint hit_model_idx = find_model(best.triangle_idx);
-  if (best.intersect) {
-    return get_color(ray, best, hit_model_idx);
+  return best;
+}
+
+vec3 trace(in Ray ray) {
+  vec3 inv_dir = vec3(1.0) / ray.dir;
+  float t_hit_bbox;
+  if (!intersect_bbox(ray, inv_dir, t_hit_bbox)) {
+    return vec3(0.0);
   }
 
-  return vec3(0.0);
+  IntersectionResult best = intersect_grid(ray, inv_dir, t_hit_bbox);
+  return best.intersect ? get_color(ray, best) : vec3(0.0);
 }
 
 Ray primary_ray(in vec2 uv, in float aspect_ratio) {
-  vec3 dir = camera.view
-             + camera.right * (2.0 * uv.x - 1.0)
-             + camera.up  * (2.0 * uv.y - 1.0);
-  dir.x *= aspect_ratio;
-  dir.z *= aspect_ratio;
+  vec2 trans = 2.0 * uv - vec2(1.0);
+  vec3 dir = camera.view + camera.right * trans.x + camera.up * trans.y;
+  dir *= vec2(aspect_ratio, 1.0).xyx;
 
   Ray ray;
   ray.orig = camera.position;
