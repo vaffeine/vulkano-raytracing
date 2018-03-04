@@ -1,6 +1,6 @@
 [package]
 name = "vulkano-raytracing"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Vlad Alex <vlad.al.dp@gmail.com>"]
 
 [[bin]]
