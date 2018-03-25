@@ -177,12 +177,10 @@ fn empty_image(
 fn load_texture(
     path: &Path,
     queue: Arc<vulkano::device::Queue>,
-) -> image::ImageResult<
-    (
-        Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>,
-        Box<vulkano::sync::GpuFuture>,
-    ),
-> {
+) -> image::ImageResult<(
+    Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>,
+    Box<vulkano::sync::GpuFuture>,
+)> {
     let image = image::open(path)?.to_rgba();
     let dimensions = image.dimensions();
     let image_data = image.into_raw().clone();
@@ -204,13 +202,11 @@ fn load_material(
     texture_idx: i32,
     device: Arc<vulkano::device::Device>,
     queue: Arc<vulkano::device::Queue>,
-) -> image::ImageResult<
-    (
-        cs::ty::Material,
-        Option<Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>>,
-        Box<vulkano::sync::GpuFuture>,
-    ),
-> {
+) -> image::ImageResult<(
+    cs::ty::Material,
+    Option<Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>>,
+    Box<vulkano::sync::GpuFuture>,
+)> {
     let (texture, future, texture_idx) = if material.diffuse_texture != "" {
         let (texture, future) = load_texture(&Path::new(&material.diffuse_texture), queue)?;
         (Some(texture), future, texture_idx)

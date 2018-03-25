@@ -1,5 +1,5 @@
-use clap;
 use cgmath;
+use clap;
 use vulkano;
 
 use std;

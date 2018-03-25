@@ -3,10 +3,10 @@ use vulkano::descriptor::descriptor_set;
 
 use std::sync::Arc;
 
-use cs;
-use scene;
-use grid::Grid;
 use camera::Camera;
+use cs;
+use grid::Grid;
+use scene;
 
 type TracerDescriptorSetsPool = descriptor_set::FixedSizeDescriptorSetsPool<
     Arc<

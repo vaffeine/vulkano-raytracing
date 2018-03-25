@@ -4,8 +4,8 @@ use vulkano::sync::GpuFuture;
 
 use gl_types::{FromArr3, Vec3, vec3_max, vec3_min};
 
-use std::sync::Arc;
 use std::f32;
+use std::sync::Arc;
 
 const WORKGROUP_SIZE: usize = 256;
 

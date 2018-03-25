@@ -4,8 +4,8 @@ use super::pair_counter::CountPairsResult;
 
 use vulkano::sync::GpuFuture;
 
-use std::sync::Arc;
 use std::iter;
+use std::sync::Arc;
 
 const WORKGROUP_SIZE: usize = 256;
 

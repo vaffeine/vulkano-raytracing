@@ -4,8 +4,8 @@ use gl_types::Vec3;
 
 use vulkano::sync::GpuFuture;
 
-use std::sync::Arc;
 use std::iter;
+use std::sync::Arc;
 
 const WORKGROUP_SIZE: usize = 256;
 
@@ -79,11 +79,10 @@ impl PairCounter {
         );
 
         let uniform_buffer_pool = vulkano::buffer::CpuBufferPool::uniform_buffer(device.clone());
-        let output_ds_pool =
-            vulkano::descriptor::descriptor_set::FixedSizeDescriptorSetsPool::new(
-                pipeline.clone(),
-                1,
-            );
+        let output_ds_pool = vulkano::descriptor::descriptor_set::FixedSizeDescriptorSetsPool::new(
+            pipeline.clone(),
+            1,
+        );
 
         PairCounter {
             pipeline,

@@ -105,12 +105,11 @@ impl fmt::Display for Camera {
 }
 
 fn view_direction(yaw: f32, pitch: f32) -> cgmath::Vector3<f32> {
-    -1.0
-        * cgmath::Vector3::new(
-            yaw.sin() * pitch.cos(),
-            pitch.sin(),
-            yaw.cos() * pitch.cos(),
-        ).normalize()
+    -1.0 * cgmath::Vector3::new(
+        yaw.sin() * pitch.cos(),
+        pitch.sin(),
+        yaw.cos() * pitch.cos(),
+    ).normalize()
 }
 
 fn scale(fov: f32) -> f32 {

@@ -5,14 +5,14 @@ extern crate vulkano_text;
 extern crate vulkano_win;
 use vulkano_text::{DrawTextTrait, UpdateTextCache};
 
-use std::sync::Arc;
 use std::boxed::Box;
 use std::marker::{Send, Sync};
 use std::mem;
+use std::sync::Arc;
 
 use gl_types::Vec2;
 
-pub struct GraphicsPart<'a> {
+pub struct Drawer<'a> {
     pub dimensions: [u32; 2],
     pub swapchain: Arc<vulkano::swapchain::Swapchain>,
     pub recreate_swapchain: bool,
@@ -41,13 +41,13 @@ pub struct GraphicsPart<'a> {
     text_drawer: vulkano_text::DrawText<'a>,
 }
 
-impl<'a> GraphicsPart<'a> {
+impl<'a> Drawer<'a> {
     pub fn new(
         device: Arc<vulkano::device::Device>,
         window: &vulkano_win::Window,
         physical: vulkano::instance::PhysicalDevice,
         queue: Arc<vulkano::device::Queue>,
-    ) -> (GraphicsPart<'a>, Box<vulkano::sync::GpuFuture>) {
+    ) -> (Drawer<'a>, Box<vulkano::sync::GpuFuture>) {
         let vs = vs::Shader::load(device.clone()).expect("failed to create shader module");
         let fs = fs::Shader::load(device.clone()).expect("failed to create shader module");
 
@@ -142,7 +142,7 @@ impl<'a> GraphicsPart<'a> {
             vulkano_text::DrawText::new(device.clone(), queue.clone(), swapchain.clone(), &images);
 
         (
-            GraphicsPart {
+            Drawer {
                 pipeline: pipeline,
                 dimensions: dimensions,
                 swapchain: swapchain,
