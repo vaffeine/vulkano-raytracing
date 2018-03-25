@@ -27,6 +27,7 @@ mod fps_counter;
 mod gl_types;
 mod grid;
 mod input;
+mod offline;
 mod realtime;
 mod scene;
 mod tracer;
@@ -36,6 +37,7 @@ use args::Args;
 use event_manager::EventManager;
 use fps_counter::FPSCounter;
 use realtime::RealTimeRender;
+use offline::OfflineRender;
 
 fn get_layers<'a>(desired_layers: Vec<&'a str>) -> Vec<&'a str> {
     let available_layers: Vec<_> = vulkano::instance::layers_list().unwrap().collect();
@@ -93,32 +95,42 @@ fn main() {
         print_message_callback,
     ).ok();
 
-    let mut events_loop = winit::EventsLoop::new();
-    let mut event_manager = EventManager::new();
-    let mut fps_counter = FPSCounter::new(fps_counter::Duration::milliseconds(
-        args.fps_update_interval,
-    ));
-
     let mut camera = camera::Camera::with_position(args.position, args.fov);
-    let mut render = RealTimeRender::new(&args, &events_loop, &instance);
-    let mut previous_frame_end =
-        Box::new(vulkano::sync::now(render.vulkan_ctx.device.clone())) as Box<_>;
-    loop {
-        previous_frame_end = render.render(
-            &mut camera,
-            &fps_counter,
-            event_manager.recreate_swapchain(),
-            previous_frame_end,
-        );
-        events_loop.poll_events(|event| event_manager.process_event(event));
-        if event_manager.done() {
-            break;
+
+    if args.benchmark {
+        let mut render = OfflineRender::new(&args, &instance, [args.resolution[0], args.resolution[1]]);
+        let statistics = render.render(&camera);
+        println!("=============== Statistics ===============");
+        println!("{}", statistics);
+    } else {
+        let mut events_loop = winit::EventsLoop::new();
+        let mut event_manager = EventManager::new();
+        let mut fps_counter = FPSCounter::new(fps_counter::Duration::milliseconds(
+            args.fps_update_interval,
+        ));
+
+        let mut render = RealTimeRender::new(&args, &events_loop, &instance);
+        let mut previous_frame_end =
+            Box::new(vulkano::sync::now(render.vulkan_ctx.device.clone())) as Box<_>;
+
+        loop {
+            previous_frame_end = render.render(
+                &mut camera,
+                &fps_counter,
+                event_manager.recreate_swapchain(),
+                previous_frame_end,
+            );
+            fps_counter.end_frame();
+
+            events_loop.poll_events(|event| event_manager.process_event(event));
+            camera.process_mouse_input(event_manager.mouse.fetch_mouse_delta());
+            camera.process_keyboard_input(
+                &event_manager.keyboard,
+                args.sensitivity * fps_counter.average_render_time() as f32 / 1000.0,
+            );
+            if event_manager.done() {
+                break;
+            }
         }
-        camera.process_keyboard_input(
-            &event_manager.keyboard,
-            args.sensitivity * fps_counter.average_render_time() as f32 / 1000.0,
-        );
-        camera.process_mouse_input(event_manager.mouse.fetch_mouse_delta());
-        fps_counter.end_frame();
     }
 }

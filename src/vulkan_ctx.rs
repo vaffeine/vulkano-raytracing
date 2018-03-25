@@ -11,6 +11,7 @@ pub struct VulkanCtx<'a> {
     pub physical: vulkano::instance::PhysicalDevice<'a>,
     pub device: Arc<vulkano::device::Device>,
     pub queue: Arc<vulkano::device::Queue>,
+    pub scene_buffers: scene::ModelBuffers,
     pub grid_builder: grid::GridBuilder,
     pub tracer: Tracer,
 }
@@ -66,6 +67,7 @@ impl<'a> VulkanCtx<'a> {
                 physical,
                 device,
                 queue,
+                scene_buffers,
                 grid_builder,
                 tracer,
             },
