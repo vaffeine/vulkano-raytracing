@@ -5,12 +5,13 @@ extern crate winit;
 use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
 
+use super::vulkan_ctx::VulkanCtx;
+use super::drawer::Drawer;
+
 use args::Args;
-use camera;
-use cs;
-use drawer::Drawer;
+use control;
+use tracers;
 use fps_counter::FPSCounter;
-use vulkan_ctx::VulkanCtx;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -54,7 +55,7 @@ impl<'a> RealTimeRender<'a> {
 
     pub fn render(
         &mut self,
-        camera: &mut camera::Camera,
+        camera: &mut control::Camera,
         fps_counter: &FPSCounter,
         recreate_swapchain: bool,
         mut previous_frame_end: Box<vulkano::sync::GpuFuture>,
@@ -81,10 +82,10 @@ impl<'a> RealTimeRender<'a> {
 
         // FIXME: it is not used here, but is required for tracer.render()
         let statistics_buffer =
-            vulkano::buffer::CpuAccessibleBuffer::<cs::ty::Statistics>::from_data(
+            vulkano::buffer::CpuAccessibleBuffer::<tracers::ty::Statistics>::from_data(
                 self.vulkan_ctx.device.clone(),
                 vulkano::buffer::BufferUsage::all(),
-                cs::ty::Statistics {
+                tracers::ty::Statistics {
                     triangle_intersections: 0,
                     triangle_tests: 0,
                     cell_intersections: 0,

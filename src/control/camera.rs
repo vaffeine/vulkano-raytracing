@@ -2,10 +2,10 @@ extern crate cgmath;
 
 use cgmath::InnerSpace;
 
-use input;
+use super::keyboard::Keyboard;
 
-use super::std::f32::consts::PI;
-use super::std::fmt;
+use std::f32::consts::PI;
+use std::fmt;
 
 const UP: cgmath::Vector3<f32> = cgmath::Vector3 {
     x: 0.0,
@@ -47,7 +47,7 @@ impl Camera {
         let up = vert_axis * scale(-self.fov[1]);
         (up.into(), right.into())
     }
-    pub fn process_keyboard_input(&mut self, keyboard: &input::Keyboard, delta_seconds: f32) {
+    pub fn process_keyboard_input(&mut self, keyboard: &Keyboard, delta_seconds: f32) {
         const SPEED: f32 = 2.5;
         let relative_speed = SPEED * delta_seconds;
         if keyboard.forward_pressed {

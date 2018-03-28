@@ -1,13 +1,34 @@
-use camera::Camera;
+extern crate vulkano;
+
+use control::Camera;
 use grid::Grid;
+use tracers::TracingShader;
+
+use std::sync::Arc;
 
 mod shader {
     #![allow(dead_code)]
     #[derive(VulkanoShader)]
     #[ty = "compute"]
-    #[path = "shaders/tracer.comp"]
+    #[path = "target/shaders/raycasting.comp"]
     struct Dummy;
 }
+
+pub struct RaycastingShader {}
+
+impl TracingShader for RaycastingShader {
+    type Uniform = ty::Uniform;
+    type Shader = self::shader::Shader;
+    type Layout = self::shader::Layout;
+
+    fn load_shader(self, device: Arc<vulkano::device::Device>) -> Self::Shader {
+        Self::Shader::load(device.clone()).expect("failed to create shader module")
+    }
+    fn new_uniform(self, camera: &Camera, grid: &Grid) -> Self::Uniform {
+        Self::Uniform::new(camera, grid)
+    }
+}
+
 pub use self::shader::{ty, Layout, Shader};
 
 impl ty::Uniform {

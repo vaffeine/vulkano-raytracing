@@ -3,10 +3,11 @@ extern crate vulkano;
 
 use vulkano::sync::GpuFuture;
 
+use super::vulkan_ctx::VulkanCtx;
+
 use args::Args;
-use camera::Camera;
-use cs;
-use vulkan_ctx::VulkanCtx;
+use control::Camera;
+use tracers;
 use grid::Grid;
 
 use std::mem;
@@ -16,7 +17,7 @@ use std::fmt;
 
 pub struct OfflineRender<'a> {
     vulkan_ctx: VulkanCtx<'a>,
-    statistics_buffer: Arc<vulkano::buffer::CpuAccessibleBuffer<cs::ty::Statistics>>,
+    statistics_buffer: Arc<vulkano::buffer::CpuAccessibleBuffer<tracers::ty::Statistics>>,
     texture: Arc<vulkano::image::StorageImage<vulkano::format::R8G8B8A8Unorm>>,
     dimensions: [u32; 2],
 }
@@ -30,10 +31,10 @@ impl<'a> OfflineRender<'a> {
         let (vulkan_ctx, _) =
             VulkanCtx::new(&instance, Path::new(&args.model), |&q| q.supports_compute());
         let statistics_buffer =
-            vulkano::buffer::CpuAccessibleBuffer::<cs::ty::Statistics>::from_data(
+            vulkano::buffer::CpuAccessibleBuffer::<tracers::ty::Statistics>::from_data(
                 vulkan_ctx.device.clone(),
                 vulkano::buffer::BufferUsage::all(),
-                cs::ty::Statistics {
+                tracers::ty::Statistics {
                     triangle_intersections: 0,
                     triangle_tests: 0,
                     cell_intersections: 0,
@@ -114,7 +115,7 @@ pub struct Statistics {
     render_time: i64,
     triangle_count: usize,
     primary_rays: u32,
-    render_statistics: cs::ty::Statistics,
+    render_statistics: tracers::ty::Statistics,
     grid: Grid,
 }
 

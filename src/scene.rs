@@ -9,7 +9,7 @@ use vulkano::sync::GpuFuture;
 use std::path::Path;
 use std::sync::Arc;
 
-use cs;
+use tracers;
 
 pub struct ModelBuffers {
     pub models: Arc<vulkano::buffer::BufferAccess + Send + Sync>,
@@ -84,6 +84,48 @@ impl ModelBuffers {
             future,
         ))
     }
+
+    pub fn build_descriptor_set(
+        &self,
+        device: Arc<vulkano::device::Device>,
+        pipeline: Arc<vulkano::descriptor::pipeline_layout::PipelineLayoutAbstract + Send + Sync>,
+        set_id: usize,
+    ) -> Result<
+        Arc<vulkano::descriptor::DescriptorSet + Send + Sync>,
+        vulkano::descriptor::descriptor_set::PersistentDescriptorSetError,
+    > {
+        let sampler = vulkano::sampler::Sampler::simple_repeat_linear(device.clone());
+        let ds = vulkano::descriptor::descriptor_set::PersistentDescriptorSet::start(
+            pipeline.clone(),
+            set_id,
+        ).add_buffer(self.positions.clone())?
+            .add_buffer(self.indices.clone())?
+            .add_buffer(self.normals.clone())?
+            .add_buffer(self.texcoords.clone())?
+            .add_buffer(self.models.clone())?
+            .add_buffer(self.materials.clone())?
+            .enter_array()?
+            .add_sampled_image(self.textures[0].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[1].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[2].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[3].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[4].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[5].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[6].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[7].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[8].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[9].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[10].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[11].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[12].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[13].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[14].clone(), sampler.clone())?
+            .add_sampled_image(self.textures[15].clone(), sampler.clone())?
+            .leave_array()?
+            .build()
+            .expect("failed to build scene descriptor set");
+        Ok(Arc::new(ds))
+    }
 }
 
 fn load_materials(
@@ -91,7 +133,7 @@ fn load_materials(
     queue: Arc<vulkano::device::Queue>,
     obj_materials: Vec<tobj::Material>,
 ) -> (
-    Vec<cs::ty::Material>,
+    Vec<tracers::ty::Material>,
     Vec<Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>>,
     Box<vulkano::sync::GpuFuture>,
 ) {
@@ -122,7 +164,7 @@ fn load_materials(
 
 fn load_mesh(
     obj_models: Vec<tobj::Model>,
-) -> (Vec<cs::ty::Model>, Vec<f32>, Vec<u32>, Vec<f32>, Vec<f32>) {
+) -> (Vec<tracers::ty::Model>, Vec<f32>, Vec<u32>, Vec<f32>, Vec<f32>) {
     let mut models = Vec::new();
     let mut positions = Vec::new();
     let mut indices = Vec::new();
@@ -134,9 +176,9 @@ fn load_mesh(
 
         let material_idx = match mesh.material_id {
             Some(id) => id as i32,
-            None => -1,
+            None => panic!("meshes without material are not supported"),
         };
-        models.push(cs::ty::Model {
+        models.push(tracers::ty::Model {
             indices_start: indices.len() as u32 / 3,
             indices_end: (indices.len() + mesh.indices.len()) as u32 / 3,
             material_idx: material_idx,
@@ -203,7 +245,7 @@ fn load_material(
     device: Arc<vulkano::device::Device>,
     queue: Arc<vulkano::device::Queue>,
 ) -> image::ImageResult<(
-    cs::ty::Material,
+    tracers::ty::Material,
     Option<Arc<vulkano::image::ImmutableImage<vulkano::format::R8G8B8A8Srgb>>>,
     Box<vulkano::sync::GpuFuture>,
 )> {
@@ -217,7 +259,7 @@ fn load_material(
             -1,
         )
     };
-    let gpu_material = cs::ty::Material {
+    let gpu_material = tracers::ty::Material {
         ambient: material.ambient,
         diffuse: material.diffuse,
         specular: material.specular,

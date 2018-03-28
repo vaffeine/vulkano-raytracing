@@ -1,11 +1,13 @@
-use input;
-use winit;
+extern crate winit;
+
+use super::keyboard::Keyboard;
+use super::mouse::Mouse;
 
 use std::mem;
 
 pub struct EventManager {
-    pub keyboard: input::Keyboard,
-    pub mouse: input::Mouse,
+    pub keyboard: Keyboard,
+    pub mouse: Mouse,
     done: bool,
     recreate_swapchain: bool,
 }
@@ -13,8 +15,8 @@ pub struct EventManager {
 impl EventManager {
     pub fn new() -> EventManager {
         EventManager {
-            keyboard: input::Keyboard::new(),
-            mouse: input::Mouse::new(),
+            keyboard: Keyboard::new(),
+            mouse: Mouse::new(),
             done: false,
             recreate_swapchain: false,
         }

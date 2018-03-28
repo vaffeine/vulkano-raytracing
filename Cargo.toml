@@ -2,6 +2,7 @@
 name = "vulkano-raytracing"
 version = "0.1.1"
 authors = ["Vlad Alex <vlad.al.dp@gmail.com>"]
+build = "build.rs"
 
 [[bin]]
 name = "tracer"
@@ -21,3 +22,6 @@ cgmath = "0.16"
 clap = "~2.27.0"
 regex = "0.2"
 lazy_static = "~1.0.0"
+
+[build-dependencies]
+tera = "0.11"

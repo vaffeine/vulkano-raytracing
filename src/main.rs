@@ -19,25 +19,19 @@ extern crate lazy_static;
 extern crate regex;
 
 mod args;
-mod camera;
-mod cs;
-mod drawer;
-mod event_manager;
+mod control;
+mod tracers;
+mod render;
 mod fps_counter;
 mod gl_types;
 mod grid;
-mod input;
-mod offline;
-mod realtime;
 mod scene;
-mod tracer;
-mod vulkan_ctx;
 
 use args::Args;
-use event_manager::EventManager;
+use control::EventManager;
 use fps_counter::FPSCounter;
-use realtime::RealTimeRender;
-use offline::OfflineRender;
+use render::RealTimeRender;
+use render::OfflineRender;
 
 fn get_layers<'a>(desired_layers: Vec<&'a str>) -> Vec<&'a str> {
     let available_layers: Vec<_> = vulkano::instance::layers_list().unwrap().collect();
@@ -95,7 +89,7 @@ fn main() {
         print_message_callback,
     ).ok();
 
-    let mut camera = camera::Camera::with_position(args.position, args.fov);
+    let mut camera = control::Camera::with_position(args.position, args.fov);
 
     if args.benchmark {
         let mut render = OfflineRender::new(&args, &instance, [args.resolution[0], args.resolution[1]]);

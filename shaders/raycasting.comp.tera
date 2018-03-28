@@ -1,0 +1,23 @@
+{% extends "tracer.comp.tera" %}
+{% block get_color %}
+
+
+vec3 get_color(in Ray ray, in IntersectionResult intersection) {
+    uvec3 triangle = indices[intersection.triangle_idx];
+
+    vec3 wuv = vec3(1.0 - intersection.uv.x - intersection.uv.y, intersection.uv.xy);
+    vec3 norm = point_norm(triangle, wuv);
+    vec2 st = point_st(triangle, wuv);
+
+    uint model_idx = find_model(intersection.triangle_idx);
+    uint material_idx = models[model_idx].material_idx;
+    Material material = materials[material_idx];
+
+    vec3 diffuse_color = material.diffuse_texture_idx != -1 ?
+        texture(diffuse_textures[material.diffuse_texture_idx], st).rgb :
+        vec3(material.diffuse);
+    float cosine_factor = abs(dot(norm, ray.dir));
+    return cosine_factor * diffuse_color;
+}
+
+{% endblock get_color %}

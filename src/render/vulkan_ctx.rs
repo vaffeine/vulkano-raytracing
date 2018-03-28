@@ -2,10 +2,10 @@ extern crate vulkano;
 
 use grid;
 use scene;
-use tracer::Tracer;
 
 use std::path::Path;
 use std::sync::Arc;
+use tracers::{RaycastingShader, Tracer};
 
 pub struct VulkanCtx<'a> {
     pub physical: vulkano::instance::PhysicalDevice<'a>,
@@ -13,7 +13,7 @@ pub struct VulkanCtx<'a> {
     pub queue: Arc<vulkano::device::Queue>,
     pub scene_buffers: scene::ModelBuffers,
     pub grid_builder: grid::GridBuilder,
-    pub tracer: Tracer,
+    pub tracer: Tracer<RaycastingShader>,
 }
 
 impl<'a> VulkanCtx<'a> {
@@ -53,7 +53,7 @@ impl<'a> VulkanCtx<'a> {
             scene::ModelBuffers::from_obj(model_path, device.clone(), queue.clone())
                 .expect("failed to load model");
 
-        let tracer = Tracer::new(device.clone(), &scene_buffers).unwrap();
+        let tracer = Tracer::new(device.clone(), &scene_buffers, RaycastingShader {}).unwrap();
 
         let grid_builder = grid::GridBuilder::new(
             queue.clone(),
